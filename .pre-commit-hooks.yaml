@@ -1,0 +1,20 @@
+- id: pindock
+  name: pindock
+  entry: pindock run
+  language: golang
+  types: [file]
+  files: (?i)(dockerfile|containerfile|compose[^/]*\.ya?ml)
+
+- id: pindock-update
+  name: pindock-update
+  entry: pindock run --update
+  language: golang
+  types: [file]
+  files: (?i)(dockerfile|containerfile|compose[^/]*\.ya?ml)
+
+- id: pindock-check
+  name: pindock-check
+  entry: pindock check
+  language: golang
+  types: [file]
+  files: (?i)(dockerfile|containerfile|compose[^/]*\.ya?ml)

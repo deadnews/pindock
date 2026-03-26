@@ -1,0 +1,27 @@
+version: 2
+
+builds:
+  - main: ./cmd/pindock/
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -X main.version={{ .Version }}
+
+release:
+  prerelease: auto
+  footer: |
+    See [the CHANGELOG]({{ .GitURL }}/blob/main/CHANGELOG.md) for more details.
+
+changelog:
+  sort: asc
+  use: git
+  filters:
+    exclude:
+      - ^chore
+      - ^test
+      - ^(ci|build|chore)\(deps.*\)
