@@ -9,24 +9,29 @@ import (
 func TestParseVersionedTag(t *testing.T) {
 	tests := []struct {
 		tag     string
+		wantPfx string
 		wantVer []int
 		wantSfx string
 		wantOK  bool
 	}{
-		{"7-alpine", []int{7}, "-alpine", true},
-		{"3.12-slim", []int{3, 12}, "-slim", true},
-		{"1.26.0", []int{1, 26, 0}, "", true},
-		{"8", []int{8}, "", true},
-		{"3.12-slim-bookworm", []int{3, 12}, "-slim-bookworm", true},
-		{"latest", nil, "", false},
-		{"alpine", nil, "", false},
-		{"bookworm", nil, "", false},
+		{"7-alpine", "", []int{7}, "-alpine", true},
+		{"3.12-slim", "", []int{3, 12}, "-slim", true},
+		{"1.26.0", "", []int{1, 26, 0}, "", true},
+		{"8", "", []int{8}, "", true},
+		{"3.12-slim-bookworm", "", []int{3, 12}, "-slim-bookworm", true},
+		{"alpine-1.23.5", "alpine-", []int{1, 23, 5}, "", true},
+		{"alpine-3.21", "alpine-", []int{3, 21}, "", true},
+		{"v1.26.0", "v", []int{1, 26, 0}, "", true},
+		{"latest", "", nil, "", false},
+		{"alpine", "", nil, "", false},
+		{"bookworm", "", nil, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.tag, func(t *testing.T) {
 			parsed, ok := parseVersionedTag(tt.tag)
 			assert.Equal(t, tt.wantOK, ok)
 			if ok {
+				assert.Equal(t, tt.wantPfx, parsed.Prefix)
 				assert.Equal(t, tt.wantVer, parsed.Version)
 				assert.Equal(t, tt.wantSfx, parsed.Suffix)
 				assert.Equal(t, tt.tag, parsed.Raw)
@@ -62,6 +67,9 @@ func TestFindLatestTag(t *testing.T) {
 		"5-alpine", "6-alpine", "7-alpine", "8-alpine",
 		"7.4-alpine", "7.4.1-alpine", "8.0-alpine", "8.0.1-alpine",
 		"7", "8", "7.4", "8.0",
+		"alpine-1.23.3", "alpine-1.23.4", "alpine-1.23.5",
+		"alpine-3.20", "alpine-3.21",
+		"v1.25.0", "v1.26.0", "v2.0.0",
 		"latest", "alpine", "bookworm",
 	}
 
@@ -79,6 +87,11 @@ func TestFindLatestTag(t *testing.T) {
 		{"already latest", "8-alpine", "", false},
 		{"non-versioned", "alpine", "", false},
 		{"no matching suffix", "7-bullseye", "", false},
+		{"prefix alpine semver", "alpine-1.23.3", "alpine-1.23.5", true},
+		{"prefix alpine major.minor", "alpine-3.20", "alpine-3.21", true},
+		{"prefix alpine already latest", "alpine-1.23.5", "", false},
+		{"prefix v semver", "v1.26.0", "v2.0.0", true},
+		{"no matching prefix", "rel-1.23.3", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

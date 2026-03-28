@@ -12,21 +12,23 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
-var versionRe = regexp.MustCompile(`^(\d+(?:\.\d+)*)(.*)$`)
+var versionRe = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+)*)(.*)$`)
 
 type parsedTag struct {
+	Prefix  string
 	Version []int
 	Suffix  string
 	Raw     string
 }
 
-// parseVersionedTag extracts version numbers and suffix from a tag like "7-alpine".
+// parseVersionedTag extracts prefix, version numbers, and suffix from tags
+// like "7-alpine", "alpine-1.23.5", or "v1.26.0".
 func parseVersionedTag(tag string) (parsedTag, bool) {
 	m := versionRe.FindStringSubmatch(tag)
 	if m == nil {
 		return parsedTag{}, false
 	}
-	parts := strings.Split(m[1], ".")
+	parts := strings.Split(m[2], ".")
 	version := make([]int, len(parts))
 	for i, p := range parts {
 		n, err := strconv.Atoi(p)
@@ -35,7 +37,7 @@ func parseVersionedTag(tag string) (parsedTag, bool) {
 		}
 		version[i] = n
 	}
-	return parsedTag{Version: version, Suffix: m[2], Raw: tag}, true
+	return parsedTag{Prefix: m[1], Version: version, Suffix: m[3], Raw: tag}, true
 }
 
 // compareVersions returns -1, 0, or 1.
@@ -58,7 +60,7 @@ func compareVersions(a, b []int) int {
 	return 0
 }
 
-// findLatestTag finds the latest tag matching the same suffix and version depth.
+// findLatestTag finds the latest tag matching the same prefix, suffix, and version depth.
 func findLatestTag(currentTag string, allTags []string) (string, bool) {
 	current, ok := parseVersionedTag(currentTag)
 	if !ok {
@@ -69,7 +71,7 @@ func findLatestTag(currentTag string, allTags []string) (string, bool) {
 	found := false
 	for _, t := range allTags {
 		parsed, ok := parseVersionedTag(t)
-		if !ok || parsed.Suffix != current.Suffix || len(parsed.Version) != depth {
+		if !ok || parsed.Prefix != current.Prefix || parsed.Suffix != current.Suffix || len(parsed.Version) != depth {
 			continue
 		}
 		if !found || compareVersions(parsed.Version, best.Version) > 0 {
