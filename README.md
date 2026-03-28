@@ -9,7 +9,7 @@
 [![CI: Main](https://img.shields.io/github/actions/workflow/status/deadnews/pindock/main.yml?branch=main&logo=github&logoColor=white&label=main)](https://github.com/deadnews/pindock/actions/workflows/main.yml)
 [![CI: Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/deadnews/pindock/refs/heads/badges/coverage.json)](https://github.com/deadnews/pindock)
 
-**[Installation](#installation)** • **[Usage](#usage)** • **[Authentication](#authentication)** • **[Pre-commit](#pre-commit)**
+**[Installation](#installation)** • **[Usage](#usage)** • **[Pre-commit](#pre-commit)**
 
 ## Installation
 
