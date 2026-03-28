@@ -119,6 +119,26 @@ func TestApplyReplacements(t *testing.T) {
 		expected := "FROM golang:1.26@sha256:abc AS a\nFROM golang:1.26@sha256:abc AS b"
 		assert.Equal(t, expected, result)
 	})
+
+	t.Run("multiple distinct unpinned refs sorted by length", func(t *testing.T) {
+		content := "FROM nginx:1.27 AS web\nFROM golang:1.26-alpine AS builder"
+		result := applyReplacements(content, map[string]string{
+			"nginx:1.27":         "nginx:1.27@sha256:aaa",
+			"golang:1.26-alpine": "golang:1.26-alpine@sha256:bbb",
+		})
+		expected := "FROM nginx:1.27@sha256:aaa AS web\nFROM golang:1.26-alpine@sha256:bbb AS builder"
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("multiple distinct digested refs sorted by length", func(t *testing.T) {
+		content := "FROM nginx:1.27@sha256:old1 AS web\nFROM golang:1.26-alpine@sha256:old2 AS builder"
+		result := applyReplacements(content, map[string]string{
+			"nginx:1.27@sha256:old1":         "nginx:1.27@sha256:new1",
+			"golang:1.26-alpine@sha256:old2": "golang:1.26-alpine@sha256:new2",
+		})
+		expected := "FROM nginx:1.27@sha256:new1 AS web\nFROM golang:1.26-alpine@sha256:new2 AS builder"
+		assert.Equal(t, expected, result)
+	})
 }
 
 func TestShouldSkip(t *testing.T) {
@@ -331,4 +351,21 @@ func TestParseAllFiles(t *testing.T) {
 		_, err := parseAllFiles([]string{filepath.Join(t.TempDir(), "Dockerfile")})
 		assert.Error(t, err)
 	})
+}
+
+func TestAllRefs(t *testing.T) {
+	parsed := []fileData{
+		{refs: []ImageRef{ParseImageRef("golang:1.26"), ParseImageRef("nginx:1.27")}},
+		{refs: []ImageRef{ParseImageRef("redis:7")}},
+	}
+	refs := allRefs(parsed)
+	require.Len(t, refs, 3)
+	assert.Equal(t, "golang:1.26", refs[0].TagRef)
+	assert.Equal(t, "nginx:1.27", refs[1].TagRef)
+	assert.Equal(t, "redis:7", refs[2].TagRef)
+}
+
+func TestAllRefs_empty(t *testing.T) {
+	assert.Empty(t, allRefs(nil))
+	assert.Empty(t, allRefs([]fileData{{refs: nil}}))
 }

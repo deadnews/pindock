@@ -165,6 +165,42 @@ ENTRYPOINT ["/bin/app"]`
 		require.Len(t, refs, 2)
 		assert.Equal(t, "ghcr.io/tool:1.0", refs[1].TagRef)
 	})
+
+	t.Run("FROM stage alias skipped", func(t *testing.T) {
+		content := `FROM python:3.14-alpine@sha256:abc AS base
+FROM base AS builder`
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "python:3.14-alpine", refs[0].TagRef)
+	})
+
+	t.Run("FROM stage alias with platform skipped", func(t *testing.T) {
+		content := `FROM --platform=linux/amd64 golang:1.26 AS base
+FROM --platform=linux/arm64 base AS cross`
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "golang:1.26", refs[0].TagRef)
+	})
+
+	t.Run("multi-stage with stage alias reuse", func(t *testing.T) {
+		content := `FROM python:3.14-alpine@sha256:abc AS base
+FROM base AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.11@sha256:def /uv /bin/uv
+FROM base AS runtime
+COPY --from=builder /app /app`
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 2)
+		assert.Equal(t, "python:3.14-alpine", refs[0].TagRef)
+		assert.Equal(t, "ghcr.io/astral-sh/uv:0.11", refs[1].TagRef)
+	})
+
+	t.Run("FROM numeric stage index skipped", func(t *testing.T) {
+		content := `FROM golang:1.26
+FROM 0`
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "golang:1.26", refs[0].TagRef)
+	})
 }
 
 func TestIsStageRef(t *testing.T) {

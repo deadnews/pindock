@@ -62,7 +62,7 @@ func parseInstruction(line string, stageNames map[string]bool) []ImageRef {
 	}
 	switch strings.ToUpper(fields[0]) {
 	case "FROM":
-		return parseFromArgs(fields[1:])
+		return parseFromArgs(fields[1:], stageNames)
 	case "COPY":
 		return parseCopyFrom(fields[1:], stageNames)
 	case "RUN":
@@ -73,13 +73,16 @@ func parseInstruction(line string, stageNames map[string]bool) []ImageRef {
 }
 
 // parseFromArgs extracts the image from FROM [--platform=...] <image> [AS <name>].
-func parseFromArgs(args []string) []ImageRef {
+func parseFromArgs(args []string, stageNames map[string]bool) []ImageRef {
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "--") {
 			continue
 		}
 		if strings.EqualFold(arg, "AS") {
 			break
+		}
+		if isStageRef(arg, stageNames) {
+			return nil
 		}
 		return []ImageRef{ParseImageRef(arg)}
 	}
