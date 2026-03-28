@@ -1,10 +1,14 @@
 # Changelog
 
-## [1.0.0-alpha.1](https://github.com/deadnews/pindock/commits/v1.0.0-alpha.1) - 2026-03-28
+## [1.0.0-alpha.2](https://github.com/deadnews/pindock/commits/v1.0.0-alpha.2) - 2026-03-28
 
 ### Features
 
 - init - ([f677611](https://github.com/deadnews/pindock/commit/f677611cdf290a9393f5b1d7c3e26c39566913e4))
+
+### Bug fixes
+
+- _(updater)_ support versioned tags with prefix - ([fc6cdaa](https://github.com/deadnews/pindock/commit/fc6cdaafa7797e825097935ae67f5ff43de78162))
 
 ### Build
 
