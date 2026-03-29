@@ -109,7 +109,8 @@ jobs:
 
       - name: Update version in PKGBUILD
         run: |
-          pkgver="${GITHUB_REF_NAME#v}"; pkgver="${pkgver//—/}"
+          pkgver="${GITHUB_REF_NAME#v}"
+          pkgver="${pkgver//-/_}"
           sed "s|^pkgver=.*$|pkgver=\"${pkgver}\"|" -i PKGBUILD
 
       - name: Deploy PKGBUILD to the Arch User Repository

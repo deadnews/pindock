@@ -1,7 +1,7 @@
 # Maintainer: deadnews <deadnewsgit@gmail.com>
 
 _pkgname="pindock"
-pkgname="pindock-bin"
+pkgname="${_pkgname}-bin"
 pkgver="0.0.0"
 pkgrel=1
 pkgdesc="Pin and update Docker image digests in Dockerfiles and compose files"
@@ -12,8 +12,8 @@ provides=("pindock")
 conflicts=("pindock")
 options=("!strip")
 
-source_x86_64=("${_pkgname}_${pkgver}_linux_amd64.tar.gz::${url}/releases/download/v${pkgver}/${_pkgname}_${pkgver}_linux_amd64.tar.gz")
-source_aarch64=("${_pkgname}_${pkgver}_linux_arm64.tar.gz::${url}/releases/download/v${pkgver}/${_pkgname}_${pkgver}_linux_arm64.tar.gz")
+source_x86_64=("${_pkgname}_${pkgver//_/-}_linux_amd64.tar.gz::${url}/releases/download/v${pkgver//_/-}/${_pkgname}_${pkgver//_/-}_linux_amd64.tar.gz")
+source_aarch64=("${_pkgname}_${pkgver//_/-}_linux_arm64.tar.gz::${url}/releases/download/v${pkgver//_/-}/${_pkgname}_${pkgver//_/-}_linux_arm64.tar.gz")
 
 sha256sums_x86_64=("SKIP")
 sha256sums_aarch64=("SKIP")
