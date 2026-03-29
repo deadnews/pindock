@@ -6,7 +6,7 @@
 [![AUR: version](https://img.shields.io/aur/version/pindock-bin?logo=archlinux&logoColor=white)](https://aur.archlinux.org/packages/pindock-bin)
 [![GitHub: Release](https://img.shields.io/github/v/release/deadnews/pindock?logo=github&logoColor=white)](https://github.com/deadnews/pindock/releases/latest)
 [![Docker: ghcr](https://img.shields.io/badge/docker-gray.svg?logo=docker&logoColor=white)](https://github.com/deadnews/pindock/pkgs/container/pindock)
-[![CI: Main](https://img.shields.io/github/actions/workflow/status/deadnews/pindock/main.yml?branch=main&logo=github&logoColor=white&label=main)](https://github.com/deadnews/pindock/actions/workflows/main.yml)
+[![CI: Main](https://img.shields.io/github/actions/workflow/status/deadnews/pindock/main.yml?branch=main&logo=github&logoColor=white&label=main)](https://github.com/deadnews/pindock)
 [![CI: Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/deadnews/pindock/refs/heads/badges/coverage.json)](https://github.com/deadnews/pindock)
 
 **[Installation](#installation)** • **[Usage](#usage)** • **[Pre-commit](#pre-commit)**
