@@ -146,7 +146,7 @@ func TestPrintResult(t *testing.T) {
 		out := captureStdout(t, func() { printResult(&r, true, false) })
 		assert.Contains(t, out, "PINNED")
 		assert.Contains(t, out, "golang:1.26")
-		assert.Contains(t, out, "->")
+		assert.Contains(t, out, "→")
 	})
 
 	t.Run("pinned check mode", func(t *testing.T) {
@@ -169,7 +169,7 @@ func TestPrintResult(t *testing.T) {
 		}
 		out := captureStdout(t, func() { printResult(&r, true, false) })
 		assert.Contains(t, out, "UPDATED")
-		assert.Contains(t, out, "->")
+		assert.Contains(t, out, "→")
 	})
 
 	t.Run("updated check mode", func(t *testing.T) {
@@ -268,6 +268,6 @@ func TestPrintResults(t *testing.T) {
 		out := captureStdout(t, func() { printResults(results, true, false) })
 		assert.Contains(t, out, "PINNED")
 		assert.Contains(t, out, "golang:1.26\n")
-		assert.Contains(t, out, "-> golang:1.26@sha256:abc")
+		assert.Contains(t, out, "→ golang:1.26@sha256:abc")
 	})
 }

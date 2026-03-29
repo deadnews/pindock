@@ -70,8 +70,8 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
 
-  goreleaser:
-    name: GoReleaser
+  github-deploy:
+    name: Release to GitHub
     if: github.ref_type == 'tag'
     needs: [prek, test]
     environment: github-releases
@@ -95,3 +95,30 @@ jobs:
           args: release --clean --draft=${{ env.PRERELEASE }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  aur-deploy:
+    name: Release to AUR
+    # if: true && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')
+    needs: [github-deploy]
+    environment:
+      name: aur
+      url: https://aur.archlinux.org/packages/pindock-bin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Update version in PKGBUILD
+        run: |
+          sed "s|^pkgver=.*$|pkgver=\"${GITHUB_REF_NAME#v}\"|" -i PKGBUILD
+
+      - name: Deploy PKGBUILD to the Arch User Repository
+        uses: ksxgithub/github-actions-deploy-aur@2ac5a4c1d7035885d46b10e3193393be8460b6f1 # v4.1.1
+        with:
+          pkgname: pindock-bin
+          pkgbuild: ./PKGBUILD
+          test: true
+          commit_username: deadnews
+          commit_email: deadnewsgit@gmail.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Upstream release ${{ github.ref_name }}
+          updpkgsums: true
