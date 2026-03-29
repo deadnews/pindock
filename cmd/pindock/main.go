@@ -200,20 +200,20 @@ func hasVisibleResults(results []pindock.Result, verbose bool) bool {
 }
 
 func printResult(r *pindock.Result, fix, verbose bool) {
-	arrow := colorDim + "->" + colorReset
+	arrow := colorDim + "→" + colorReset
 	switch r.Status {
 	case pindock.StatusPinned:
 		label := colorLabel(colorRed, "UNPINNED")
 		if fix {
 			label = colorLabel(colorYellow, "PINNED")
 		}
-		fmt.Printf("  %s  %s\n         %s %s\n", label, r.Ref.Original, arrow, dimDigest(r.PinnedRef()))
+		fmt.Printf("  %s  %s\n          %s %s\n", label, r.Ref.Original, arrow, dimDigest(r.PinnedRef()))
 	case pindock.StatusUpdated:
 		label := colorLabel(colorRed, "OUTDATED")
 		if fix {
 			label = colorLabel(colorYellow, "UPDATED")
 		}
-		fmt.Printf("  %s  %s\n         %s %s\n", label, dimDigest(r.Ref.Original), arrow, dimDigest(r.PinnedRef()))
+		fmt.Printf("  %s  %s\n          %s %s\n", label, dimDigest(r.Ref.Original), arrow, dimDigest(r.PinnedRef()))
 	case pindock.StatusCurrent:
 		if verbose {
 			fmt.Printf("  %s  %s\n", colorLabel(colorGreen, "OK"), dimDigest(r.Ref.Original))
