@@ -98,7 +98,7 @@ jobs:
 
   aur-deploy:
     name: Release to AUR
-    # if: true && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')
+    if: true && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')
     needs: [github-deploy]
     environment:
       name: aur
@@ -113,14 +113,14 @@ jobs:
           pkgver="${pkgver//-/_}"
           sed "s|^pkgver=.*$|pkgver=\"${pkgver}\"|" -i PKGBUILD
 
-      - name: Deploy PKGBUILD to the Arch User Repository
+      - name: Deploy PKGBUILD to the AUR
         uses: ksxgithub/github-actions-deploy-aur@2ac5a4c1d7035885d46b10e3193393be8460b6f1 # v4.1.1
         with:
           pkgname: pindock-bin
           pkgbuild: ./PKGBUILD
-          test: true
           commit_username: deadnews
           commit_email: deadnewsgit@gmail.com
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           commit_message: Upstream release ${{ github.ref_name }}
           updpkgsums: true
+          test: true
