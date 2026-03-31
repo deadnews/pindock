@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.0-alpha.7](https://github.com/deadnews/pindock/commits/v1.0.0-alpha.7) - 2026-03-31
+## [1.0.0-alpha.8](https://github.com/deadnews/pindock/commits/v1.0.0-alpha.8) - 2026-03-31
 
 ### Features
 
@@ -10,6 +10,10 @@
 
 - _(updater)_ support versioned tags with prefix - ([fc6cdaa](https://github.com/deadnews/pindock/commit/fc6cdaafa7797e825097935ae67f5ff43de78162))
 - position-based replacement instead of global substring - ([5160b8a](https://github.com/deadnews/pindock/commit/5160b8a70155a58109ef8d5099480ecf9f19b9b2))
+
+### Refactor
+
+- _(internal/pindock)_ add `resolveData` type - ([448b863](https://github.com/deadnews/pindock/commit/448b863d0291a3762b6c33df31ba5bed285e5944))
 
 ### Build
 
