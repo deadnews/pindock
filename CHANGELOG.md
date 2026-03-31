@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.0-alpha.8](https://github.com/deadnews/pindock/commits/v1.0.0-alpha.8) - 2026-03-31
+## [1.0.0-alpha.9](https://github.com/deadnews/pindock/commits/v1.0.0-alpha.9) - 2026-03-31
 
 ### Features
 
