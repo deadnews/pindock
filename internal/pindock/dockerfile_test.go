@@ -203,6 +203,42 @@ FROM 0`
 	})
 }
 
+func TestParseDockerfile_offsets(t *testing.T) {
+	t.Run("simple FROM", func(t *testing.T) {
+		content := "FROM golang:1.26-alpine"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, 5, refs[0].Start)
+		assert.Equal(t, refs[0].Original, content[refs[0].Start:refs[0].Start+len(refs[0].Original)])
+	})
+
+	t.Run("continuation line", func(t *testing.T) {
+		content := "FROM --platform=linux/amd64 \\\n    golang:1.26-alpine AS builder"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, refs[0].Original, content[refs[0].Start:refs[0].Start+len(refs[0].Original)])
+	})
+
+	t.Run("COPY --from and RUN --mount offsets", func(t *testing.T) {
+		content := "FROM golang:1.26 AS builder\nCOPY --from=ghcr.io/org/tool:1.0@sha256:def /bin/tool /bin/tool"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 2)
+		for _, ref := range refs {
+			assert.Equal(t, ref.Original, content[ref.Start:ref.Start+len(ref.Original)])
+		}
+	})
+
+	t.Run("multi-stage offsets", func(t *testing.T) {
+		content := "FROM golang:1.26-alpine@sha256:aaa AS builder\nFROM gcr.io/distroless/static@sha256:bbb AS runtime\nCOPY --from=ghcr.io/org/check:1.0@sha256:ccc /bin/check /bin/check"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 3)
+		for _, ref := range refs {
+			assert.Equal(t, ref.Original, content[ref.Start:ref.Start+len(ref.Original)],
+				"offset mismatch for %s", ref.Original)
+		}
+	})
+}
+
 func TestIsStageRef(t *testing.T) {
 	stages := map[string]bool{"builder": true, "runtime": true}
 

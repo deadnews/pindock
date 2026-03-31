@@ -2,46 +2,86 @@ package pindock
 
 import "strings"
 
+// logicalLine is a Dockerfile line after joining backslash continuations,
+// with byte offsets into the original content.
+type logicalLine struct {
+	text  string
+	start int // byte offset of first source line
+	end   int // byte offset past last char of last source line
+}
+
 // ParseDockerfile extracts image references from Dockerfile content.
 func ParseDockerfile(content string) []ImageRef {
-	lines := strings.Split(content, "\n")
-	logical := joinContinuationLines(lines)
+	logical := joinLogicalLines(content)
 	stageNames := collectStageNames(logical)
 
-	refs := make([]ImageRef, 0, len(logical))
-	for _, line := range logical {
-		refs = append(refs, parseInstruction(line, stageNames)...)
+	var refs []ImageRef
+	for _, ll := range logical {
+		lineRefs := parseInstruction(ll.text, stageNames)
+
+		// Resolve byte offsets by finding each ref in its source region.
+		region := content[ll.start:ll.end]
+		searchFrom := 0
+		for i := range lineRefs {
+			idx := strings.Index(region[searchFrom:], lineRefs[i].Original)
+			if idx >= 0 {
+				lineRefs[i].Start = ll.start + searchFrom + idx
+				searchFrom += idx + len(lineRefs[i].Original)
+			}
+		}
+
+		refs = append(refs, lineRefs...)
 	}
 	return refs
 }
 
-// joinContinuationLines merges backslash-continued lines into logical lines.
-func joinContinuationLines(lines []string) []string {
-	var result []string
+// joinLogicalLines merges backslash-continued lines into logical lines,
+// tracking byte ranges in the original content.
+func joinLogicalLines(content string) []logicalLine {
+	lines := strings.Split(content, "\n")
+	var result []logicalLine
 	var buf strings.Builder
 
+	offset := 0
+	groupStart := 0
+	inGroup := false
+
 	for _, line := range lines {
+		if !inGroup {
+			groupStart = offset
+			inGroup = true
+		}
 		trimmed := strings.TrimRight(line, " \t\r")
 		if strings.HasSuffix(trimmed, `\`) {
 			buf.WriteString(trimmed[:len(trimmed)-1])
 			buf.WriteByte(' ')
-			continue
+		} else {
+			buf.WriteString(trimmed)
+			result = append(result, logicalLine{
+				text:  buf.String(),
+				start: groupStart,
+				end:   offset + len(line),
+			})
+			buf.Reset()
+			inGroup = false
 		}
-		buf.WriteString(trimmed)
-		result = append(result, buf.String())
-		buf.Reset()
+		offset += len(line) + 1
 	}
 	if buf.Len() > 0 {
-		result = append(result, buf.String())
+		result = append(result, logicalLine{
+			text:  buf.String(),
+			start: groupStart,
+			end:   offset - 1,
+		})
 	}
 	return result
 }
 
 // collectStageNames gathers FROM ... AS names so --from can distinguish stages from images.
-func collectStageNames(lines []string) map[string]bool {
+func collectStageNames(lines []logicalLine) map[string]bool {
 	names := make(map[string]bool)
-	for _, line := range lines {
-		fields := strings.Fields(line)
+	for _, ll := range lines {
+		fields := strings.Fields(ll.text)
 		if len(fields) < 2 || !strings.EqualFold(fields[0], "FROM") {
 			continue
 		}

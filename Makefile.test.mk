@@ -1,4 +1,4 @@
-.PHONY: test check
+.PHONY: test check pin update
 
 test: check
 

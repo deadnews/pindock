@@ -112,3 +112,13 @@ services:
 		assert.Equal(t, "debian:11", refs[0].TagRef)
 	})
 }
+
+func TestParseCompose_offsets(t *testing.T) {
+	content := "services:\n  web:\n    image: nginx:1.27\n  db:\n    image: postgres:18-alpine"
+	refs := ParseCompose(content)
+	require.Len(t, refs, 2)
+	for _, ref := range refs {
+		assert.Equal(t, ref.Original, content[ref.Start:ref.Start+len(ref.Original)],
+			"offset mismatch for %s", ref.Original)
+	}
+}

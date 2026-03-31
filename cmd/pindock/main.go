@@ -160,12 +160,12 @@ func printResults(results []pindock.Result, fix, verbose bool) {
 	}
 	seen := make(map[string]int)
 	var groups []group
-	for _, r := range results {
-		if idx, ok := seen[r.File]; ok {
-			groups[idx].results = append(groups[idx].results, r)
+	for i := range results {
+		if idx, ok := seen[results[i].File]; ok {
+			groups[idx].results = append(groups[idx].results, results[i])
 		} else {
-			seen[r.File] = len(groups)
-			groups = append(groups, group{file: r.File, results: []pindock.Result{r}})
+			seen[results[i].File] = len(groups)
+			groups = append(groups, group{file: results[i].File, results: []pindock.Result{results[i]}})
 		}
 	}
 
@@ -186,8 +186,8 @@ func printResults(results []pindock.Result, fix, verbose bool) {
 }
 
 func hasVisibleResults(results []pindock.Result, verbose bool) bool {
-	for _, r := range results {
-		switch r.Status {
+	for i := range results {
+		switch results[i].Status {
 		case pindock.StatusPinned, pindock.StatusUpdated, pindock.StatusError:
 			return true
 		case pindock.StatusCurrent, pindock.StatusSkipped:

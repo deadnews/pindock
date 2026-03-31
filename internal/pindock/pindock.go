@@ -16,6 +16,7 @@ type ImageRef struct {
 	Original string // as found in the file
 	TagRef   string // without digest
 	Digest   string // empty if unpinned
+	Start    int    // byte offset of Original in file content
 }
 
 // ParseImageRef splits "image:tag@sha256:..." into tag and digest.
@@ -92,8 +93,9 @@ func process(ctx context.Context, files []string, fix, update bool) ([]Result, e
 	}
 
 	var tagUpdates map[string]string
+	var tagErrors map[string]error
 	if update {
-		tagUpdates = FindLatestTags(ctx, allRefs(parsed))
+		tagUpdates, tagErrors = FindLatestTags(ctx, allRefs(parsed))
 	}
 
 	toResolve := collectResolvable(parsed, update, tagUpdates)
@@ -102,11 +104,11 @@ func process(ctx context.Context, files []string, fix, update bool) ([]Result, e
 	var results []Result
 	for i := range parsed {
 		fp := &parsed[i]
-		fileResults, replacements := classifyRefs(fp, digests, resolveErrs, fix, update, tagUpdates)
+		fileResults, repls := classifyRefs(fp, digests, resolveErrs, fix, update, tagUpdates, tagErrors)
 		results = append(results, fileResults...)
 
-		if fix && len(replacements) > 0 {
-			newContent := applyReplacements(fp.content, replacements)
+		if fix && len(repls) > 0 {
+			newContent := applyReplacements(fp.content, repls)
 			if err := os.WriteFile(fp.path, []byte(newContent), fp.mode); err != nil {
 				return nil, fmt.Errorf("write %s: %w", fp.path, err)
 			}
@@ -145,9 +147,14 @@ func collectResolvable(parsed []fileData, update bool, tagUpdates map[string]str
 	return refs
 }
 
-func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[string]error, fix, update bool, tagUpdates map[string]string) (results []Result, replacements map[string]string) {
-	replacements = make(map[string]string)
+// replacement is a position-based text substitution.
+type replacement struct {
+	start  int
+	end    int
+	newStr string
+}
 
+func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[string]error, fix, update bool, tagUpdates map[string]string, tagErrors map[string]error) (results []Result, repls []replacement) {
 	for _, ref := range fp.refs {
 		if shouldSkip(ref) {
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusSkipped})
@@ -158,6 +165,15 @@ func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[strin
 		if !update && ref.Digest != "" {
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusCurrent})
 			continue
+		}
+
+		// Tag listing failed for a pinned ref in update mode: report error
+		// because we cannot verify whether a newer tag exists.
+		if ref.Digest != "" {
+			if err, ok := tagErrors[ref.TagRef]; ok {
+				results = append(results, Result{File: fp.path, Ref: ref, Status: StatusError, Err: err})
+				continue
+			}
 		}
 
 		lookupTag := ref.TagRef
@@ -193,13 +209,17 @@ func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[strin
 		}
 
 		if fix {
-			replacements[ref.Original] = result.PinnedRef()
+			repls = append(repls, replacement{
+				start:  ref.Start,
+				end:    ref.Start + len(ref.Original),
+				newStr: result.PinnedRef(),
+			})
 		}
 
 		results = append(results, result)
 	}
 
-	return results, replacements
+	return results, repls
 }
 
 func parseAllFiles(files []string) ([]fileData, error) {
@@ -238,50 +258,14 @@ func shouldSkip(ref ImageRef) bool {
 	return ref.HasVariable() || ref.TagRef == "scratch"
 }
 
-// applyReplacements replaces old refs. Digested refs go first so that
-// unpinned "image:tag" doesn't corrupt "image:tag@sha256:..." elsewhere.
-func applyReplacements(content string, replacements map[string]string) string {
-	var digested, unpinned []string
-	for old := range replacements {
-		if strings.Contains(old, "@") {
-			digested = append(digested, old)
-		} else {
-			unpinned = append(unpinned, old)
-		}
-	}
-
-	slices.SortFunc(digested, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
-	slices.SortFunc(unpinned, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
-
-	for _, old := range digested {
-		content = strings.ReplaceAll(content, old, replacements[old])
-	}
-	for _, old := range unpinned {
-		content = replaceNotFollowedByAt(content, old, replacements[old])
+// applyReplacements substitutes refs at their recorded byte offsets.
+// Replacements are applied from end to start so earlier offsets stay valid.
+func applyReplacements(content string, repls []replacement) string {
+	slices.SortFunc(repls, func(a, b replacement) int {
+		return cmp.Compare(b.start, a.start)
+	})
+	for _, r := range repls {
+		content = content[:r.start] + r.newStr + content[r.end:]
 	}
 	return content
-}
-
-// replaceNotFollowedByAt replaces old with newStr only when not followed by '@'.
-func replaceNotFollowedByAt(content, old, newStr string) string {
-	var b strings.Builder
-	b.Grow(len(content))
-	for {
-		i := strings.Index(content, old)
-		if i == -1 {
-			b.WriteString(content)
-			break
-		}
-		end := i + len(old)
-		if end < len(content) && content[end] == '@' {
-			// Part of a digested ref: skip.
-			b.WriteString(content[:end])
-			content = content[end:]
-			continue
-		}
-		b.WriteString(content[:i])
-		b.WriteString(newStr)
-		content = content[end:]
-	}
-	return b.String()
 }

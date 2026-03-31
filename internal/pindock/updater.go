@@ -2,6 +2,7 @@ package pindock
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -86,9 +87,11 @@ func findLatestTag(currentTag string, allTags []string) (string, bool) {
 }
 
 // FindLatestTags queries registries and returns a map from old TagRef to new TagRef
-// for refs where a newer version exists.
-func FindLatestTags(ctx context.Context, refs []ImageRef) map[string]string {
-	updates := make(map[string]string)
+// for refs where a newer version exists. The second return value contains errors
+// for refs whose repository tag listing failed (e.g. auth failures, rate limits).
+func FindLatestTags(ctx context.Context, refs []ImageRef) (updates map[string]string, failed map[string]error) {
+	updates = make(map[string]string)
+	failed = make(map[string]error)
 
 	type refInfo struct {
 		tagRef string
@@ -121,6 +124,7 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) map[string]string {
 	}
 
 	tagCache := make(map[string][]string)
+	repoErrors := make(map[string]error)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 10)
@@ -139,6 +143,8 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) map[string]string {
 			defer mu.Unlock()
 			if err == nil {
 				tagCache[repoStr] = tags
+			} else {
+				repoErrors[repoStr] = err
 			}
 		})
 	}
@@ -152,6 +158,11 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) map[string]string {
 		seen[info.tagRef] = true
 
 		repoStr := info.repo.String()
+		if err, ok := repoErrors[repoStr]; ok {
+			failed[info.tagRef] = fmt.Errorf("list tags for %s: %w", repoStr, err)
+			continue
+		}
+
 		newTag, found := findLatestTag(info.tag, tagCache[repoStr])
 		if !found {
 			continue
@@ -164,5 +175,5 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) map[string]string {
 		updates[info.tagRef] = info.tagRef[:colonIdx+1] + newTag
 	}
 
-	return updates
+	return updates, failed
 }
