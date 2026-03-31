@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.0-alpha.6](https://github.com/deadnews/pindock/commits/v1.0.0-alpha.6) - 2026-03-29
+## [1.0.0-alpha.7](https://github.com/deadnews/pindock/commits/v1.0.0-alpha.7) - 2026-03-31
 
 ### Features
 
@@ -9,6 +9,7 @@
 ### Bug fixes
 
 - _(updater)_ support versioned tags with prefix - ([fc6cdaa](https://github.com/deadnews/pindock/commit/fc6cdaafa7797e825097935ae67f5ff43de78162))
+- position-based replacement instead of global substring - ([5160b8a](https://github.com/deadnews/pindock/commit/5160b8a70155a58109ef8d5099480ecf9f19b9b2))
 
 ### Build
 
@@ -16,6 +17,7 @@
 
 ### Chores
 
+- _(github)_ add condition to `aur-deploy` job - ([eb18473](https://github.com/deadnews/pindock/commit/eb184736bd49df9f0a15ec329788ae5c6c2a5c4e))
 - _(github)_ add `aur` deploy - ([5d7e25e](https://github.com/deadnews/pindock/commit/5d7e25e9922bbde22d01d31fc0609b0f1a2c69fa))
 - use `→` over `->` in output - ([ca9a50e](https://github.com/deadnews/pindock/commit/ca9a50eeb2cbd07704445fc891e9cdd0ec15b58a))
 
