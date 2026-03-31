@@ -86,25 +86,32 @@ type fileData struct {
 	refs    []ImageRef
 }
 
+// resolveData holds digest and tag-update results from registry lookups.
+type resolveData struct {
+	digests    map[string]string
+	errs       map[string]error
+	tagUpdates map[string]string
+	tagErrors  map[string]error
+}
+
 func process(ctx context.Context, files []string, fix, update bool) ([]Result, error) {
 	parsed, err := parseAllFiles(files)
 	if err != nil {
 		return nil, err
 	}
 
-	var tagUpdates map[string]string
-	var tagErrors map[string]error
+	var rd resolveData
 	if update {
-		tagUpdates, tagErrors = FindLatestTags(ctx, allRefs(parsed))
+		rd.tagUpdates, rd.tagErrors = FindLatestTags(ctx, allRefs(parsed))
 	}
 
-	toResolve := collectResolvable(parsed, update, tagUpdates)
-	digests, resolveErrs := ResolveAll(ctx, toResolve)
+	toResolve := collectResolvable(parsed, update, rd.tagUpdates)
+	rd.digests, rd.errs = ResolveAll(ctx, toResolve)
 
 	var results []Result
 	for i := range parsed {
 		fp := &parsed[i]
-		fileResults, repls := classifyRefs(fp, digests, resolveErrs, fix, update, tagUpdates, tagErrors)
+		fileResults, repls := classifyRefs(fp, &rd, fix, update)
 		results = append(results, fileResults...)
 
 		if fix && len(repls) > 0 {
@@ -154,7 +161,7 @@ type replacement struct {
 	newStr string
 }
 
-func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[string]error, fix, update bool, tagUpdates map[string]string, tagErrors map[string]error) (results []Result, repls []replacement) {
+func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Result, repls []replacement) {
 	for _, ref := range fp.refs {
 		if shouldSkip(ref) {
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusSkipped})
@@ -167,25 +174,25 @@ func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[strin
 			continue
 		}
 
-		// Tag listing failed for a pinned ref in update mode: report error
-		// because we cannot verify whether a newer tag exists.
+		// Cannot verify if a newer tag exists: tag listing failed in update mode.
 		if ref.Digest != "" {
-			if err, ok := tagErrors[ref.TagRef]; ok {
+			if err, ok := rd.tagErrors[ref.TagRef]; ok {
 				results = append(results, Result{File: fp.path, Ref: ref, Status: StatusError, Err: err})
 				continue
 			}
 		}
 
+		// Resolve against updated tag so the digest matches the new version.
 		lookupTag := ref.TagRef
 		var newTagRef string
-		if t, ok := tagUpdates[ref.TagRef]; ok {
+		if t, ok := rd.tagUpdates[ref.TagRef]; ok {
 			lookupTag = t
 			newTagRef = t
 		}
 
-		digest, ok := digests[lookupTag]
+		digest, ok := rd.digests[lookupTag]
 		if !ok {
-			refErr := resolveErrs[lookupTag]
+			refErr := rd.errs[lookupTag]
 			if refErr == nil {
 				refErr = fmt.Errorf("failed to resolve %s", lookupTag)
 			}
@@ -223,7 +230,7 @@ func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[strin
 }
 
 func parseAllFiles(files []string) ([]fileData, error) {
-	var result []fileData
+	result := make([]fileData, 0, len(files))
 	for _, f := range files {
 		ft, ok := ClassifyFile(f)
 		if !ok {

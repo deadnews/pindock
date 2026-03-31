@@ -86,9 +86,8 @@ func findLatestTag(currentTag string, allTags []string) (string, bool) {
 	return best.Raw, true
 }
 
-// FindLatestTags queries registries and returns a map from old TagRef to new TagRef
-// for refs where a newer version exists. The second return value contains errors
-// for refs whose repository tag listing failed (e.g. auth failures, rate limits).
+// FindLatestTags queries registries for newer versions of each ref.
+// Returns old→new tag updates and per-ref errors for failed repo listings.
 func FindLatestTags(ctx context.Context, refs []ImageRef) (updates map[string]string, failed map[string]error) {
 	updates = make(map[string]string)
 	failed = make(map[string]error)
@@ -127,7 +126,7 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) (updates map[string]st
 	repoErrors := make(map[string]error)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 10)
+	sem := make(chan struct{}, maxConcurrency)
 
 	for repoStr, repo := range repos {
 		wg.Go(func() {

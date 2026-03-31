@@ -14,7 +14,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// Disable colors for deterministic test output.
 	colorRed = ""
 	colorGreen = ""
 	colorYellow = ""
