@@ -143,7 +143,7 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) (updates map[string]st
 			if err == nil {
 				tagCache[repoStr] = tags
 			} else {
-				repoErrors[repoStr] = err
+				repoErrors[repoStr] = simplifyError(err)
 			}
 		})
 	}

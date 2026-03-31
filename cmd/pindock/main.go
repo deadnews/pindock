@@ -24,7 +24,7 @@ func main() {
 		kong.Vars{"version": version},
 	)
 	if err := ctx.Run(); err != nil {
-		if errors.Is(err, errCheckFailed) {
+		if errors.Is(err, errCheckFailed) || errors.Is(err, errHasErrors) {
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -61,6 +61,12 @@ func (cmd *RunCmd) Run() error {
 	}
 
 	printResults(results, true, cmd.Verbose)
+
+	if slices.ContainsFunc(results, func(r pindock.Result) bool {
+		return r.Status == pindock.StatusError
+	}) {
+		return errHasErrors
+	}
 	return nil
 }
 
@@ -71,7 +77,10 @@ type CheckCmd struct {
 	Verbose bool     `short:"v" help:"Show all images, including pinned."`
 }
 
-var errCheckFailed = errors.New("check failed")
+var (
+	errCheckFailed = errors.New("check failed")
+	errHasErrors   = errors.New("errors occurred")
+)
 
 func (cmd *CheckCmd) Run() error {
 	files, err := resolveFiles(cmd.Files, cmd.Dir)
