@@ -1,9 +1,10 @@
 # Changelog
 
-## [1.0.0-alpha.9](https://github.com/deadnews/pindock/commits/v1.0.0-alpha.9) - 2026-03-31
+## [1.0.0-alpha.10](https://github.com/deadnews/pindock/commits/v1.0.0-alpha.10) - 2026-04-01
 
 ### Features
 
+- _(cmd/pindock)_ add `-u` flag to `check` - ([c17202c](https://github.com/deadnews/pindock/commit/c17202c2b81458cb7363931852efaa66262f919d))
 - init - ([f677611](https://github.com/deadnews/pindock/commit/f677611cdf290a9393f5b1d7c3e26c39566913e4))
 
 ### Bug fixes
