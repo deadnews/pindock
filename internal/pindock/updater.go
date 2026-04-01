@@ -2,6 +2,7 @@ package pindock
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -12,21 +13,23 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
-var versionRe = regexp.MustCompile(`^(\d+(?:\.\d+)*)(.*)$`)
+var versionRe = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+)*)(.*)$`)
 
 type parsedTag struct {
+	Prefix  string
 	Version []int
 	Suffix  string
 	Raw     string
 }
 
-// parseVersionedTag extracts version numbers and suffix from a tag like "7-alpine".
+// parseVersionedTag extracts prefix, version numbers, and suffix from tags
+// like "7-alpine", "alpine-1.23.5", or "v1.26.0".
 func parseVersionedTag(tag string) (parsedTag, bool) {
 	m := versionRe.FindStringSubmatch(tag)
 	if m == nil {
 		return parsedTag{}, false
 	}
-	parts := strings.Split(m[1], ".")
+	parts := strings.Split(m[2], ".")
 	version := make([]int, len(parts))
 	for i, p := range parts {
 		n, err := strconv.Atoi(p)
@@ -35,7 +38,7 @@ func parseVersionedTag(tag string) (parsedTag, bool) {
 		}
 		version[i] = n
 	}
-	return parsedTag{Version: version, Suffix: m[2], Raw: tag}, true
+	return parsedTag{Prefix: m[1], Version: version, Suffix: m[3], Raw: tag}, true
 }
 
 // compareVersions returns -1, 0, or 1.
@@ -58,7 +61,7 @@ func compareVersions(a, b []int) int {
 	return 0
 }
 
-// findLatestTag finds the latest tag matching the same suffix and version depth.
+// findLatestTag finds the latest tag matching the same prefix, suffix, and version depth.
 func findLatestTag(currentTag string, allTags []string) (string, bool) {
 	current, ok := parseVersionedTag(currentTag)
 	if !ok {
@@ -69,7 +72,7 @@ func findLatestTag(currentTag string, allTags []string) (string, bool) {
 	found := false
 	for _, t := range allTags {
 		parsed, ok := parseVersionedTag(t)
-		if !ok || parsed.Suffix != current.Suffix || len(parsed.Version) != depth {
+		if !ok || parsed.Prefix != current.Prefix || parsed.Suffix != current.Suffix || len(parsed.Version) != depth {
 			continue
 		}
 		if !found || compareVersions(parsed.Version, best.Version) > 0 {
@@ -83,10 +86,11 @@ func findLatestTag(currentTag string, allTags []string) (string, bool) {
 	return best.Raw, true
 }
 
-// FindLatestTags queries registries and returns a map from old TagRef to new TagRef
-// for refs where a newer version exists.
-func FindLatestTags(ctx context.Context, refs []ImageRef) map[string]string {
-	updates := make(map[string]string)
+// FindLatestTags queries registries for newer versions of each ref.
+// Returns old→new tag updates and per-ref errors for failed repo listings.
+func FindLatestTags(ctx context.Context, refs []ImageRef) (updates map[string]string, failed map[string]error) {
+	updates = make(map[string]string)
+	failed = make(map[string]error)
 
 	type refInfo struct {
 		tagRef string
@@ -119,9 +123,10 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) map[string]string {
 	}
 
 	tagCache := make(map[string][]string)
+	repoErrors := make(map[string]error)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 10)
+	sem := make(chan struct{}, maxConcurrency)
 
 	for repoStr, repo := range repos {
 		wg.Go(func() {
@@ -137,6 +142,8 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) map[string]string {
 			defer mu.Unlock()
 			if err == nil {
 				tagCache[repoStr] = tags
+			} else {
+				repoErrors[repoStr] = simplifyError(err)
 			}
 		})
 	}
@@ -150,6 +157,11 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) map[string]string {
 		seen[info.tagRef] = true
 
 		repoStr := info.repo.String()
+		if err, ok := repoErrors[repoStr]; ok {
+			failed[info.tagRef] = fmt.Errorf("list tags for %s: %w", repoStr, err)
+			continue
+		}
+
 		newTag, found := findLatestTag(info.tag, tagCache[repoStr])
 		if !found {
 			continue
@@ -162,5 +174,5 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) map[string]string {
 		updates[info.tagRef] = info.tagRef[:colonIdx+1] + newTag
 	}
 
-	return updates
+	return updates, failed
 }

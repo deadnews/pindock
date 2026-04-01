@@ -21,10 +21,14 @@ func main() {
 		kong.Name("pindock"),
 		kong.Description("Pin and update Docker image digests."),
 		kong.UsageOnError(),
+		kong.ConfigureHelp(kong.HelpOptions{
+			Compact:   true,
+			FlagsLast: true,
+		}),
 		kong.Vars{"version": version},
 	)
 	if err := ctx.Run(); err != nil {
-		if errors.Is(err, errCheckFailed) {
+		if errors.Is(err, errCheckFailed) || errors.Is(err, errHasErrors) {
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -61,6 +65,12 @@ func (cmd *RunCmd) Run() error {
 	}
 
 	printResults(results, true, cmd.Verbose)
+
+	if slices.ContainsFunc(results, func(r pindock.Result) bool {
+		return r.Status == pindock.StatusError
+	}) {
+		return errHasErrors
+	}
 	return nil
 }
 
@@ -68,10 +78,14 @@ func (cmd *RunCmd) Run() error {
 type CheckCmd struct {
 	Files   []string `arg:"" optional:"" help:"Files to process."`
 	Dir     string   `short:"C" default:"." help:"Directory to scan."`
+	Update  bool     `short:"u" help:"Also check pinned digests for updates."`
 	Verbose bool     `short:"v" help:"Show all images, including pinned."`
 }
 
-var errCheckFailed = errors.New("check failed")
+var (
+	errCheckFailed = errors.New("check failed")
+	errHasErrors   = errors.New("errors occurred")
+)
 
 func (cmd *CheckCmd) Run() error {
 	files, err := resolveFiles(cmd.Files, cmd.Dir)
@@ -82,7 +96,7 @@ func (cmd *CheckCmd) Run() error {
 		return nil
 	}
 
-	results, err := pindock.Check(context.Background(), files)
+	results, err := pindock.Check(context.Background(), files, cmd.Update)
 	if err != nil {
 		return fmt.Errorf("check: %w", err)
 	}
@@ -90,7 +104,7 @@ func (cmd *CheckCmd) Run() error {
 	printResults(results, false, cmd.Verbose)
 
 	if slices.ContainsFunc(results, func(r pindock.Result) bool {
-		return r.Status == pindock.StatusPinned || r.Status == pindock.StatusError
+		return r.Status == pindock.StatusPinned || r.Status == pindock.StatusUpdated || r.Status == pindock.StatusError
 	}) {
 		return errCheckFailed
 	}
@@ -160,34 +174,30 @@ func printResults(results []pindock.Result, fix, verbose bool) {
 	}
 	seen := make(map[string]int)
 	var groups []group
-	for _, r := range results {
-		if idx, ok := seen[r.File]; ok {
-			groups[idx].results = append(groups[idx].results, r)
+	for i := range results {
+		if idx, ok := seen[results[i].File]; ok {
+			groups[idx].results = append(groups[idx].results, results[i])
 		} else {
-			seen[r.File] = len(groups)
-			groups = append(groups, group{file: r.File, results: []pindock.Result{r}})
+			seen[results[i].File] = len(groups)
+			groups = append(groups, group{file: results[i].File, results: []pindock.Result{results[i]}})
 		}
 	}
 
-	first := true
 	for _, g := range groups {
 		if !hasVisibleResults(g.results, verbose) {
 			continue
 		}
-		if !first {
-			fmt.Println()
-		}
-		first = false
 		fmt.Printf("%s%s%s\n", colorBold, g.file, colorReset)
 		for i := range g.results {
 			printResult(&g.results[i], fix, verbose)
 		}
+		fmt.Println()
 	}
 }
 
 func hasVisibleResults(results []pindock.Result, verbose bool) bool {
-	for _, r := range results {
-		switch r.Status {
+	for i := range results {
+		switch results[i].Status {
 		case pindock.StatusPinned, pindock.StatusUpdated, pindock.StatusError:
 			return true
 		case pindock.StatusCurrent, pindock.StatusSkipped:
@@ -200,20 +210,20 @@ func hasVisibleResults(results []pindock.Result, verbose bool) bool {
 }
 
 func printResult(r *pindock.Result, fix, verbose bool) {
-	arrow := colorDim + "->" + colorReset
+	arrow := colorDim + "→" + colorReset
 	switch r.Status {
 	case pindock.StatusPinned:
 		label := colorLabel(colorRed, "UNPINNED")
 		if fix {
 			label = colorLabel(colorYellow, "PINNED")
 		}
-		fmt.Printf("  %s  %s\n         %s %s\n", label, r.Ref.Original, arrow, dimDigest(r.PinnedRef()))
+		fmt.Printf("  %s  %s\n          %s %s\n", label, r.Ref.Original, arrow, dimDigest(r.PinnedRef()))
 	case pindock.StatusUpdated:
 		label := colorLabel(colorRed, "OUTDATED")
 		if fix {
 			label = colorLabel(colorYellow, "UPDATED")
 		}
-		fmt.Printf("  %s  %s\n         %s %s\n", label, dimDigest(r.Ref.Original), arrow, dimDigest(r.PinnedRef()))
+		fmt.Printf("  %s  %s\n          %s %s\n", label, dimDigest(r.Ref.Original), arrow, dimDigest(r.PinnedRef()))
 	case pindock.StatusCurrent:
 		if verbose {
 			fmt.Printf("  %s  %s\n", colorLabel(colorGreen, "OK"), dimDigest(r.Ref.Original))
@@ -223,6 +233,6 @@ func printResult(r *pindock.Result, fix, verbose bool) {
 			fmt.Printf("  %s  %s\n", colorLabel(colorDim, "SKIP"), r.Ref.Original)
 		}
 	case pindock.StatusError:
-		fmt.Fprintf(os.Stderr, "  %s  %s: %s%v%s\n", colorLabel(colorRed, "ERROR"), r.Ref.TagRef, colorRed, r.Err, colorReset)
+		fmt.Printf("  %s  %s  %s%v%s\n", colorLabel(colorRed, "ERROR"), r.Ref.TagRef, colorRed, r.Err, colorReset)
 	}
 }

@@ -14,6 +14,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 )
 
+const maxConcurrency = 10
+
 // ResolveDigest fetches the current digest for a tag reference.
 func ResolveDigest(ctx context.Context, tagRef string) (string, error) {
 	ref, err := name.ParseReference(tagRef)
@@ -53,7 +55,7 @@ func ResolveAll(ctx context.Context, refs []ImageRef) (digests map[string]string
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 10) // max parallel registry requests
+	sem := make(chan struct{}, maxConcurrency)
 
 	for tagRef := range unique {
 		wg.Go(func() {

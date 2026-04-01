@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"slices"
@@ -16,6 +17,7 @@ type ImageRef struct {
 	Original string // as found in the file
 	TagRef   string // without digest
 	Digest   string // empty if unpinned
+	Start    int    // byte offset of Original in file content
 }
 
 // ParseImageRef splits "image:tag@sha256:..." into tag and digest.
@@ -32,9 +34,9 @@ func (r ImageRef) NeedsUpdate(currentDigest string) bool {
 	return r.Digest != currentDigest
 }
 
-// HasVariable reports whether the ref contains ${...} substitution.
+// HasVariable reports whether the ref contains $VAR or ${VAR} substitution.
 func (r ImageRef) HasVariable() bool {
-	return strings.Contains(r.Original, "${")
+	return strings.Contains(r.Original, "$")
 }
 
 // Status is a processing outcome for a single image reference.
@@ -73,9 +75,9 @@ func Run(ctx context.Context, files []string, update bool) ([]Result, error) {
 	return process(ctx, files, true, update)
 }
 
-// Check reports unpinned images without modifying any files.
-func Check(ctx context.Context, files []string) ([]Result, error) {
-	return process(ctx, files, false, false)
+// Check reports unpinned images. If update is true, also reports outdated.
+func Check(ctx context.Context, files []string, update bool) ([]Result, error) {
+	return process(ctx, files, false, update)
 }
 
 type fileData struct {
@@ -85,28 +87,36 @@ type fileData struct {
 	refs    []ImageRef
 }
 
+// resolveData holds digest and tag-update results from registry lookups.
+type resolveData struct {
+	digests    map[string]string
+	errs       map[string]error
+	tagUpdates map[string]string
+	tagErrors  map[string]error
+}
+
 func process(ctx context.Context, files []string, fix, update bool) ([]Result, error) {
 	parsed, err := parseAllFiles(files)
 	if err != nil {
 		return nil, err
 	}
 
-	var tagUpdates map[string]string
+	var rd resolveData
 	if update {
-		tagUpdates = FindLatestTags(ctx, allRefs(parsed))
+		rd.tagUpdates, rd.tagErrors = FindLatestTags(ctx, allRefs(parsed))
 	}
 
-	toResolve := collectResolvable(parsed, update, tagUpdates)
-	digests, resolveErrs := ResolveAll(ctx, toResolve)
+	toResolve := collectResolvable(parsed, update, rd.tagUpdates)
+	rd.digests, rd.errs = ResolveAll(ctx, toResolve)
 
 	var results []Result
 	for i := range parsed {
 		fp := &parsed[i]
-		fileResults, replacements := classifyRefs(fp, digests, resolveErrs, fix, update, tagUpdates)
+		fileResults, repls := classifyRefs(fp, &rd, fix, update)
 		results = append(results, fileResults...)
 
-		if fix && len(replacements) > 0 {
-			newContent := applyReplacements(fp.content, replacements)
+		if fix && len(repls) > 0 {
+			newContent := applyReplacements(fp.content, repls)
 			if err := os.WriteFile(fp.path, []byte(newContent), fp.mode); err != nil {
 				return nil, fmt.Errorf("write %s: %w", fp.path, err)
 			}
@@ -145,9 +155,14 @@ func collectResolvable(parsed []fileData, update bool, tagUpdates map[string]str
 	return refs
 }
 
-func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[string]error, fix, update bool, tagUpdates map[string]string) (results []Result, replacements map[string]string) {
-	replacements = make(map[string]string)
+// replacement is a position-based text substitution.
+type replacement struct {
+	start  int
+	end    int
+	newStr string
+}
 
+func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Result, repls []replacement) {
 	for _, ref := range fp.refs {
 		if shouldSkip(ref) {
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusSkipped})
@@ -160,16 +175,25 @@ func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[strin
 			continue
 		}
 
+		// Cannot verify if a newer tag exists: tag listing failed in update mode.
+		if ref.Digest != "" {
+			if err, ok := rd.tagErrors[ref.TagRef]; ok {
+				results = append(results, Result{File: fp.path, Ref: ref, Status: StatusError, Err: err})
+				continue
+			}
+		}
+
+		// Resolve against updated tag so the digest matches the new version.
 		lookupTag := ref.TagRef
 		var newTagRef string
-		if t, ok := tagUpdates[ref.TagRef]; ok {
+		if t, ok := rd.tagUpdates[ref.TagRef]; ok {
 			lookupTag = t
 			newTagRef = t
 		}
 
-		digest, ok := digests[lookupTag]
+		digest, ok := rd.digests[lookupTag]
 		if !ok {
-			refErr := resolveErrs[lookupTag]
+			refErr := rd.errs[lookupTag]
 			if refErr == nil {
 				refErr = fmt.Errorf("failed to resolve %s", lookupTag)
 			}
@@ -184,7 +208,7 @@ func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[strin
 		}
 
 		status := StatusUpdated
-		if ref.Digest == "" {
+		if ref.Digest == "" && !tagChanged {
 			status = StatusPinned
 		}
 		result := Result{File: fp.path, Ref: ref, NewDigest: digest, Status: status}
@@ -193,33 +217,42 @@ func classifyRefs(fp *fileData, digests map[string]string, resolveErrs map[strin
 		}
 
 		if fix {
-			replacements[ref.Original] = result.PinnedRef()
+			repls = append(repls, replacement{
+				start:  ref.Start,
+				end:    ref.Start + len(ref.Original),
+				newStr: result.PinnedRef(),
+			})
 		}
 
 		results = append(results, result)
 	}
 
-	return results, replacements
+	return results, repls
 }
 
 func parseAllFiles(files []string) ([]fileData, error) {
-	var result []fileData
+	result := make([]fileData, 0, len(files))
 	for _, f := range files {
 		ft, ok := ClassifyFile(f)
 		if !ok {
 			return nil, fmt.Errorf("unrecognized file type: %s", f)
 		}
 
-		data, err := os.ReadFile(f) //nolint:gosec // path comes from user args or discovery
+		file, err := os.Open(f) //nolint:gosec // path comes from user args or discovery
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", f, err)
+		}
+		info, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return nil, fmt.Errorf("stat %s: %w", f, err)
+		}
+		data, err := io.ReadAll(file)
+		_ = file.Close()
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", f, err)
 		}
 		content := string(data)
-
-		info, err := os.Stat(f)
-		if err != nil {
-			return nil, fmt.Errorf("stat %s: %w", f, err)
-		}
 
 		var refs []ImageRef
 		switch ft {
@@ -238,50 +271,14 @@ func shouldSkip(ref ImageRef) bool {
 	return ref.HasVariable() || ref.TagRef == "scratch"
 }
 
-// applyReplacements replaces old refs. Digested refs go first so that
-// unpinned "image:tag" doesn't corrupt "image:tag@sha256:..." elsewhere.
-func applyReplacements(content string, replacements map[string]string) string {
-	var digested, unpinned []string
-	for old := range replacements {
-		if strings.Contains(old, "@") {
-			digested = append(digested, old)
-		} else {
-			unpinned = append(unpinned, old)
-		}
-	}
-
-	slices.SortFunc(digested, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
-	slices.SortFunc(unpinned, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
-
-	for _, old := range digested {
-		content = strings.ReplaceAll(content, old, replacements[old])
-	}
-	for _, old := range unpinned {
-		content = replaceNotFollowedByAt(content, old, replacements[old])
+// applyReplacements substitutes refs at their recorded byte offsets.
+// Replacements are applied from end to start so earlier offsets stay valid.
+func applyReplacements(content string, repls []replacement) string {
+	slices.SortFunc(repls, func(a, b replacement) int {
+		return cmp.Compare(b.start, a.start)
+	})
+	for _, r := range repls {
+		content = content[:r.start] + r.newStr + content[r.end:]
 	}
 	return content
-}
-
-// replaceNotFollowedByAt replaces old with newStr only when not followed by '@'.
-func replaceNotFollowedByAt(content, old, newStr string) string {
-	var b strings.Builder
-	b.Grow(len(content))
-	for {
-		i := strings.Index(content, old)
-		if i == -1 {
-			b.WriteString(content)
-			break
-		}
-		end := i + len(old)
-		if end < len(content) && content[end] == '@' {
-			// Part of a digested ref: skip.
-			b.WriteString(content[:end])
-			content = content[end:]
-			continue
-		}
-		b.WriteString(content[:i])
-		b.WriteString(newStr)
-		content = content[end:]
-	}
-	return b.String()
 }

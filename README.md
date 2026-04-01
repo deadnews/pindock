@@ -3,13 +3,13 @@
 > Pin and update Docker image digests in Dockerfiles and compose files.
 
 [![PyPI: Version](https://img.shields.io/pypi/v/pindock?logo=pypi&logoColor=white)](https://pypi.org/project/pindock)
-[![AUR: version](https://img.shields.io/aur/version/pindock?logo=archlinux&logoColor=white)](https://aur.archlinux.org/packages/pindock)
+[![AUR: version](https://img.shields.io/aur/version/pindock-bin?logo=archlinux&logoColor=white)](https://aur.archlinux.org/packages/pindock-bin)
 [![GitHub: Release](https://img.shields.io/github/v/release/deadnews/pindock?logo=github&logoColor=white)](https://github.com/deadnews/pindock/releases/latest)
 [![Docker: ghcr](https://img.shields.io/badge/docker-gray.svg?logo=docker&logoColor=white)](https://github.com/deadnews/pindock/pkgs/container/pindock)
-[![CI: Main](https://img.shields.io/github/actions/workflow/status/deadnews/pindock/main.yml?branch=main&logo=github&logoColor=white&label=main)](https://github.com/deadnews/pindock/actions/workflows/main.yml)
+[![CI: Main](https://img.shields.io/github/actions/workflow/status/deadnews/pindock/main.yml?branch=main&logo=github&logoColor=white&label=main)](https://github.com/deadnews/pindock)
 [![CI: Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/deadnews/pindock/refs/heads/badges/coverage.json)](https://github.com/deadnews/pindock)
 
-**[Installation](#installation)** • **[Usage](#usage)** • **[Authentication](#authentication)** • **[Pre-commit](#pre-commit)**
+**[Installation](#installation)** • **[Usage](#usage)** • **[Pre-commit](#pre-commit)**
 
 ## Installation
 
@@ -18,7 +18,7 @@
 uv tool install pindock
 
 # AUR
-yay -S pindock
+yay -S pindock-bin
 
 # Docker
 docker pull ghcr.io/deadnews/pindock
@@ -32,19 +32,17 @@ Usage: pindock <command> [flags]
 Pin and update Docker image digests.
 
 Commands:
-  run [<files> ...] [flags]
-    Pin unpinned image digests.
+  run      Pin unpinned image digests.
+  check    Verify all images are pinned.
 
-  check [<files> ...] [flags]
-    Verify all images are pinned.
-
-Run flags:
+run flags:
   -C, --dir=.      Directory to scan.
   -u, --update     Also update pinned digests to latest.
   -v, --verbose    Show all images, including pinned.
 
-Check flags:
+check flags:
   -C, --dir=.      Directory to scan.
+  -u, --update     Also check pinned digests for updates.
   -v, --verbose    Show all images, including pinned.
 ```
 
@@ -76,5 +74,8 @@ repos:
     hooks:
       - id: pindock
       - id: pindock-check
-      - id: pindock-update
+
+      # example with args
+      - id: pindock-check
+        args: [--update, --verbose]
 ```

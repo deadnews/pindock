@@ -14,7 +14,7 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=${GOMODCACHE} \
     go mod download
 
-COPY --parents cmd ./
+COPY --parents cmd internal ./
 RUN --mount=type=cache,target=${GOCACHE} \
     --mount=type=cache,target=${GOMODCACHE} \
     go build -o /bin/pindock ./cmd/pindock

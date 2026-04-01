@@ -40,10 +40,24 @@ func TestParseDockerfile(t *testing.T) {
 		assert.Equal(t, "scratch", refs[0].TagRef)
 	})
 
-	t.Run("FROM with variable image", func(t *testing.T) {
+	t.Run("FROM with variable image braces", func(t *testing.T) {
 		refs := ParseDockerfile(`FROM ${BASE_IMAGE}`)
 		require.Len(t, refs, 1)
 		assert.True(t, refs[0].HasVariable())
+	})
+
+	t.Run("FROM with variable image bare", func(t *testing.T) {
+		refs := ParseDockerfile(`FROM $BASE_IMAGE`)
+		require.Len(t, refs, 1)
+		assert.True(t, refs[0].HasVariable())
+	})
+
+	t.Run("COPY --from with bare variable skipped", func(t *testing.T) {
+		content := "FROM golang:1.26 AS builder\nCOPY --from=$TOOL_IMAGE /bin/tool /bin/tool"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 2)
+		assert.False(t, refs[0].HasVariable())
+		assert.True(t, refs[1].HasVariable())
 	})
 
 	t.Run("COPY --from image", func(t *testing.T) {
@@ -164,6 +178,78 @@ ENTRYPOINT ["/bin/app"]`
 		refs := ParseDockerfile(content)
 		require.Len(t, refs, 2)
 		assert.Equal(t, "ghcr.io/tool:1.0", refs[1].TagRef)
+	})
+
+	t.Run("FROM stage alias skipped", func(t *testing.T) {
+		content := `FROM python:3.14-alpine@sha256:abc AS base
+FROM base AS builder`
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "python:3.14-alpine", refs[0].TagRef)
+	})
+
+	t.Run("FROM stage alias with platform skipped", func(t *testing.T) {
+		content := `FROM --platform=linux/amd64 golang:1.26 AS base
+FROM --platform=linux/arm64 base AS cross`
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "golang:1.26", refs[0].TagRef)
+	})
+
+	t.Run("multi-stage with stage alias reuse", func(t *testing.T) {
+		content := `FROM python:3.14-alpine@sha256:abc AS base
+FROM base AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.11@sha256:def /uv /bin/uv
+FROM base AS runtime
+COPY --from=builder /app /app`
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 2)
+		assert.Equal(t, "python:3.14-alpine", refs[0].TagRef)
+		assert.Equal(t, "ghcr.io/astral-sh/uv:0.11", refs[1].TagRef)
+	})
+
+	t.Run("FROM numeric stage index skipped", func(t *testing.T) {
+		content := `FROM golang:1.26
+FROM 0`
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "golang:1.26", refs[0].TagRef)
+	})
+}
+
+func TestParseDockerfile_offsets(t *testing.T) {
+	t.Run("simple FROM", func(t *testing.T) {
+		content := "FROM golang:1.26-alpine"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, 5, refs[0].Start)
+		assert.Equal(t, refs[0].Original, content[refs[0].Start:refs[0].Start+len(refs[0].Original)])
+	})
+
+	t.Run("continuation line", func(t *testing.T) {
+		content := "FROM --platform=linux/amd64 \\\n    golang:1.26-alpine AS builder"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, refs[0].Original, content[refs[0].Start:refs[0].Start+len(refs[0].Original)])
+	})
+
+	t.Run("COPY --from and RUN --mount offsets", func(t *testing.T) {
+		content := "FROM golang:1.26 AS builder\nCOPY --from=ghcr.io/org/tool:1.0@sha256:def /bin/tool /bin/tool"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 2)
+		for _, ref := range refs {
+			assert.Equal(t, ref.Original, content[ref.Start:ref.Start+len(ref.Original)])
+		}
+	})
+
+	t.Run("multi-stage offsets", func(t *testing.T) {
+		content := "FROM golang:1.26-alpine@sha256:aaa AS builder\nFROM gcr.io/distroless/static@sha256:bbb AS runtime\nCOPY --from=ghcr.io/org/check:1.0@sha256:ccc /bin/check /bin/check"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 3)
+		for _, ref := range refs {
+			assert.Equal(t, ref.Original, content[ref.Start:ref.Start+len(ref.Original)],
+				"offset mismatch for %s", ref.Original)
+		}
 	})
 }
 

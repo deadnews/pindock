@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Run prek
-        uses: j178/prek-action@79f765515bd648eb4d6bb1b17277b7cb22cb6468 # v2.0.0
+        uses: j178/prek-action@53276d8b0d10f8b6672aa85b4588c6921d0370cc # v2.0.1
 
   test:
     name: Test
@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
 
@@ -57,12 +57,12 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
 
       - name: Build wheels
-        uses: deadnews/go-wheel-action@bd5a25cf82ab01b8805626a2fe69d9f20bd7aa3e # v1.0.0
+        uses: deadnews/go-wheel-action@7245bc954b671543ca4bccd3e505ec67c5daa816 # v1.0.1
         with:
           package: ./cmd/pindock
           ldflags: -s -X main.version=${{ github.ref_name }}
@@ -70,8 +70,8 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
 
-  goreleaser:
-    name: GoReleaser
+  github-deploy:
+    name: Release to GitHub
     if: github.ref_type == 'tag'
     needs: [prek, test]
     environment: github-releases
@@ -85,7 +85,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
 
@@ -95,3 +95,32 @@ jobs:
           args: release --clean --draft=${{ env.PRERELEASE }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  aur-deploy:
+    name: Release to AUR
+    if: true && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')
+    needs: [github-deploy]
+    environment:
+      name: aur
+      url: https://aur.archlinux.org/packages/${{ github.event.repository.name }}-bin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Update version in PKGBUILD
+        run: |
+          pkgver="${GITHUB_REF_NAME#v}"
+          pkgver="${pkgver//-/_}"
+          sed "s|^pkgver=.*$|pkgver=\"${pkgver}\"|" -i PKGBUILD
+
+      - name: Deploy PKGBUILD to the AUR
+        uses: ksxgithub/github-actions-deploy-aur@2ac5a4c1d7035885d46b10e3193393be8460b6f1 # v4.1.1
+        with:
+          pkgname: ${{ github.event.repository.name }}-bin
+          pkgbuild: ./PKGBUILD
+          commit_username: ${{ github.actor }}
+          commit_email: ${{ github.actor }}@users.noreply.github.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Upstream release ${{ github.ref_name }}
+          updpkgsums: true
+          test: true
