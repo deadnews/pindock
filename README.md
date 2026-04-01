@@ -75,7 +75,7 @@ repos:
       - id: pindock
       - id: pindock-check
 
-      # args can be passed
+      # example with args
       - id: pindock-check
         args: [--update, --verbose]
 ```

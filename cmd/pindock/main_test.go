@@ -120,20 +120,6 @@ func captureStdout(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	old := os.Stderr
-	os.Stderr = w
-	fn()
-	require.NoError(t, w.Close())
-	os.Stderr = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	return buf.String()
-}
-
 func TestPrintResult(t *testing.T) {
 	t.Run("pinned fix mode", func(t *testing.T) {
 		r := pindock.Result{
@@ -229,7 +215,7 @@ func TestPrintResult(t *testing.T) {
 			Status: pindock.StatusError,
 			Err:    errors.New("401 unauthorized"),
 		}
-		out := captureStderr(t, func() { printResult(&r, false, false) })
+		out := captureStdout(t, func() { printResult(&r, false, false) })
 		assert.Contains(t, out, "ERROR")
 		assert.Contains(t, out, "401 unauthorized")
 	})

@@ -237,6 +237,6 @@ func printResult(r *pindock.Result, fix, verbose bool) {
 			fmt.Printf("  %s  %s\n", colorLabel(colorDim, "SKIP"), r.Ref.Original)
 		}
 	case pindock.StatusError:
-		fmt.Fprintf(os.Stderr, "  %s  %s  %s%v%s\n", colorLabel(colorRed, "ERROR"), r.Ref.TagRef, colorRed, r.Err, colorReset)
+		fmt.Printf("  %s  %s  %s%v%s\n", colorLabel(colorRed, "ERROR"), r.Ref.TagRef, colorRed, r.Err, colorReset)
 	}
 }
