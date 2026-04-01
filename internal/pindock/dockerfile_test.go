@@ -40,10 +40,24 @@ func TestParseDockerfile(t *testing.T) {
 		assert.Equal(t, "scratch", refs[0].TagRef)
 	})
 
-	t.Run("FROM with variable image", func(t *testing.T) {
+	t.Run("FROM with variable image braces", func(t *testing.T) {
 		refs := ParseDockerfile(`FROM ${BASE_IMAGE}`)
 		require.Len(t, refs, 1)
 		assert.True(t, refs[0].HasVariable())
+	})
+
+	t.Run("FROM with variable image bare", func(t *testing.T) {
+		refs := ParseDockerfile(`FROM $BASE_IMAGE`)
+		require.Len(t, refs, 1)
+		assert.True(t, refs[0].HasVariable())
+	})
+
+	t.Run("COPY --from with bare variable skipped", func(t *testing.T) {
+		content := "FROM golang:1.26 AS builder\nCOPY --from=$TOOL_IMAGE /bin/tool /bin/tool"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 2)
+		assert.False(t, refs[0].HasVariable())
+		assert.True(t, refs[1].HasVariable())
 	})
 
 	t.Run("COPY --from image", func(t *testing.T) {

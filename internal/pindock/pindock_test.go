@@ -74,6 +74,8 @@ func TestImageRef_HasVariable(t *testing.T) {
 	assert.False(t, ParseImageRef("golang:1.26").HasVariable())
 	assert.True(t, ParseImageRef("golang:${TAG}").HasVariable())
 	assert.True(t, ParseImageRef("${BASE_IMAGE}").HasVariable())
+	assert.True(t, ParseImageRef("$BASE_IMAGE").HasVariable())
+	assert.True(t, ParseImageRef("golang:$TAG").HasVariable())
 }
 
 func TestApplyReplacements(t *testing.T) {

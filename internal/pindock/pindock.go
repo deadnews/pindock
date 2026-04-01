@@ -34,9 +34,9 @@ func (r ImageRef) NeedsUpdate(currentDigest string) bool {
 	return r.Digest != currentDigest
 }
 
-// HasVariable reports whether the ref contains ${...} substitution.
+// HasVariable reports whether the ref contains $VAR or ${VAR} substitution.
 func (r ImageRef) HasVariable() bool {
-	return strings.Contains(r.Original, "${")
+	return strings.Contains(r.Original, "$")
 }
 
 // Status is a processing outcome for a single image reference.
