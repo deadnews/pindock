@@ -270,3 +270,31 @@ func TestPrintResults(t *testing.T) {
 		assert.Contains(t, out, "→ golang:1.26@sha256:abc")
 	})
 }
+
+func TestSetupColors_noColorEnv(t *testing.T) {
+	defer func() {
+		colorRed = ""
+		colorGreen = ""
+		colorYellow = ""
+		colorDim = ""
+		colorBold = ""
+		colorReset = ""
+	}()
+
+	colorRed = "\033[31m"
+	colorGreen = "\033[32m"
+	colorYellow = "\033[33m"
+	colorDim = "\033[2m"
+	colorBold = "\033[1m"
+	colorReset = "\033[0m"
+
+	t.Setenv("NO_COLOR", "1")
+	setupColors()
+
+	assert.Empty(t, colorRed)
+	assert.Empty(t, colorGreen)
+	assert.Empty(t, colorYellow)
+	assert.Empty(t, colorDim)
+	assert.Empty(t, colorBold)
+	assert.Empty(t, colorReset)
+}

@@ -32,19 +32,17 @@ Usage: pindock <command> [flags]
 Pin and update Docker image digests.
 
 Commands:
-  run [<files> ...] [flags]
-    Pin unpinned image digests.
+  run      Pin unpinned image digests.
+  check    Verify all images are pinned.
 
-  check [<files> ...] [flags]
-    Verify all images are pinned.
-
-Run flags:
+run flags:
   -C, --dir=.      Directory to scan.
   -u, --update     Also update pinned digests to latest.
   -v, --verbose    Show all images, including pinned.
 
-Check flags:
+check flags:
   -C, --dir=.      Directory to scan.
+  -u, --update     Also check pinned digests for updates.
   -v, --verbose    Show all images, including pinned.
 ```
 
@@ -76,5 +74,8 @@ repos:
     hooks:
       - id: pindock
       - id: pindock-check
-      - id: pindock-update
+
+      # args can be passed
+      - id: pindock-check
+        args: [--update, --verbose]
 ```

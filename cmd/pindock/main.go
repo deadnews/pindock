@@ -21,6 +21,10 @@ func main() {
 		kong.Name("pindock"),
 		kong.Description("Pin and update Docker image digests."),
 		kong.UsageOnError(),
+		kong.ConfigureHelp(kong.HelpOptions{
+			Compact:   true,
+			FlagsLast: true,
+		}),
 		kong.Vars{"version": version},
 	)
 	if err := ctx.Run(); err != nil {
@@ -74,6 +78,7 @@ func (cmd *RunCmd) Run() error {
 type CheckCmd struct {
 	Files   []string `arg:"" optional:"" help:"Files to process."`
 	Dir     string   `short:"C" default:"." help:"Directory to scan."`
+	Update  bool     `short:"u" help:"Also check pinned digests for updates."`
 	Verbose bool     `short:"v" help:"Show all images, including pinned."`
 }
 
@@ -91,7 +96,7 @@ func (cmd *CheckCmd) Run() error {
 		return nil
 	}
 
-	results, err := pindock.Check(context.Background(), files)
+	results, err := pindock.Check(context.Background(), files, cmd.Update)
 	if err != nil {
 		return fmt.Errorf("check: %w", err)
 	}
@@ -99,7 +104,7 @@ func (cmd *CheckCmd) Run() error {
 	printResults(results, false, cmd.Verbose)
 
 	if slices.ContainsFunc(results, func(r pindock.Result) bool {
-		return r.Status == pindock.StatusPinned || r.Status == pindock.StatusError
+		return r.Status == pindock.StatusPinned || r.Status == pindock.StatusUpdated || r.Status == pindock.StatusError
 	}) {
 		return errCheckFailed
 	}

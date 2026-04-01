@@ -1,6 +1,7 @@
 package pindock
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -412,4 +413,118 @@ func TestAllRefs(t *testing.T) {
 func TestAllRefs_empty(t *testing.T) {
 	assert.Empty(t, allRefs(nil))
 	assert.Empty(t, allRefs([]fileData{{refs: nil}}))
+}
+
+func TestRun(t *testing.T) {
+	t.Run("scratch only", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "Dockerfile")
+		require.NoError(t, os.WriteFile(path, []byte("FROM scratch\n"), 0o644))
+
+		results, err := Run(context.Background(), []string{path}, false)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		assert.Equal(t, StatusSkipped, results[0].Status)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "FROM scratch\n", string(data))
+	})
+
+	t.Run("variable refs", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "Dockerfile")
+		require.NoError(t, os.WriteFile(path, []byte("FROM ${BASE_IMAGE}\n"), 0o644))
+
+		results, err := Run(context.Background(), []string{path}, false)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		assert.Equal(t, StatusSkipped, results[0].Status)
+	})
+
+	t.Run("mixed scratch and pinned without update", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "Dockerfile")
+		content := "FROM scratch\nFROM golang:1.26@sha256:abc123 AS builder\n"
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+		results, err := Run(context.Background(), []string{path}, false)
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+		assert.Equal(t, StatusSkipped, results[0].Status)
+		assert.Equal(t, StatusCurrent, results[1].Status)
+	})
+
+	t.Run("update with scratch only", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "Dockerfile")
+		require.NoError(t, os.WriteFile(path, []byte("FROM scratch\n"), 0o644))
+
+		results, err := Run(context.Background(), []string{path}, true)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		assert.Equal(t, StatusSkipped, results[0].Status)
+	})
+
+	t.Run("multiple files", func(t *testing.T) {
+		dir := t.TempDir()
+		df := filepath.Join(dir, "Dockerfile")
+		cf := filepath.Join(dir, "compose.yml")
+		require.NoError(t, os.WriteFile(df, []byte("FROM scratch\n"), 0o644))
+		require.NoError(t, os.WriteFile(cf, []byte("services:\n  app:\n    image: ${IMG}\n"), 0o644))
+
+		results, err := Run(context.Background(), []string{df, cf}, false)
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+	})
+
+	t.Run("nonexistent file", func(t *testing.T) {
+		_, err := Run(context.Background(), []string{filepath.Join(t.TempDir(), "Dockerfile")}, false)
+		assert.Error(t, err)
+	})
+
+	t.Run("unrecognized file type", func(t *testing.T) {
+		_, err := Run(context.Background(), []string{"README.md"}, false)
+		assert.Error(t, err)
+	})
+}
+
+func TestCheck(t *testing.T) {
+	t.Run("pinned without update", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "Dockerfile")
+		require.NoError(t, os.WriteFile(path, []byte("FROM golang:1.26@sha256:abc123\n"), 0o644))
+
+		results, err := Check(context.Background(), []string{path}, false)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		assert.Equal(t, StatusCurrent, results[0].Status)
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "FROM golang:1.26@sha256:abc123\n", string(data))
+	})
+
+	t.Run("scratch and variables", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "Dockerfile")
+		content := "FROM scratch\nFROM ${BASE}:latest\n"
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+		results, err := Check(context.Background(), []string{path}, false)
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+		for _, r := range results {
+			assert.Equal(t, StatusSkipped, r.Status)
+		}
+	})
+
+	t.Run("update with only variables", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "compose.yml")
+		require.NoError(t, os.WriteFile(path, []byte("services:\n  app:\n    image: ${IMG}\n"), 0o644))
+
+		results, err := Check(context.Background(), []string{path}, true)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		assert.Equal(t, StatusSkipped, results[0].Status)
+	})
+
+	t.Run("nonexistent file", func(t *testing.T) {
+		_, err := Check(context.Background(), []string{filepath.Join(t.TempDir(), "Dockerfile")}, false)
+		assert.Error(t, err)
+	})
 }

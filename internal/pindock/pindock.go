@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"slices"
@@ -74,9 +75,9 @@ func Run(ctx context.Context, files []string, update bool) ([]Result, error) {
 	return process(ctx, files, true, update)
 }
 
-// Check reports unpinned images without modifying any files.
-func Check(ctx context.Context, files []string) ([]Result, error) {
-	return process(ctx, files, false, false)
+// Check reports unpinned images. If update is true, also reports outdated.
+func Check(ctx context.Context, files []string, update bool) ([]Result, error) {
+	return process(ctx, files, false, update)
 }
 
 type fileData struct {
@@ -237,16 +238,21 @@ func parseAllFiles(files []string) ([]fileData, error) {
 			return nil, fmt.Errorf("unrecognized file type: %s", f)
 		}
 
-		data, err := os.ReadFile(f) //nolint:gosec // path comes from user args or discovery
+		file, err := os.Open(f) //nolint:gosec // path comes from user args or discovery
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", f, err)
+		}
+		info, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return nil, fmt.Errorf("stat %s: %w", f, err)
+		}
+		data, err := io.ReadAll(file)
+		_ = file.Close()
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", f, err)
 		}
 		content := string(data)
-
-		info, err := os.Stat(f)
-		if err != nil {
-			return nil, fmt.Errorf("stat %s: %w", f, err)
-		}
 
 		var refs []ImageRef
 		switch ft {

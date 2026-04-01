@@ -98,7 +98,7 @@ jobs:
 
   aur-deploy:
     name: Release to AUR
-    # if: true && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')
+    if: true && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')
     needs: [github-deploy]
     environment:
       name: aur
