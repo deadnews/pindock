@@ -208,7 +208,7 @@ func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Re
 		}
 
 		status := StatusUpdated
-		if ref.Digest == "" {
+		if ref.Digest == "" && !tagChanged {
 			status = StatusPinned
 		}
 		result := Result{File: fp.path, Ref: ref, NewDigest: digest, Status: status}

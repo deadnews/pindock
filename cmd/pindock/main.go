@@ -183,19 +183,15 @@ func printResults(results []pindock.Result, fix, verbose bool) {
 		}
 	}
 
-	first := true
 	for _, g := range groups {
 		if !hasVisibleResults(g.results, verbose) {
 			continue
 		}
-		if !first {
-			fmt.Println()
-		}
-		first = false
 		fmt.Printf("%s%s%s\n", colorBold, g.file, colorReset)
 		for i := range g.results {
 			printResult(&g.results[i], fix, verbose)
 		}
+		fmt.Println()
 	}
 }
 

@@ -297,7 +297,7 @@ func TestClassifyRefs_tagUpdate(t *testing.T) {
 			tagUpdates: map[string]string{"redis:7-alpine": "redis:8-alpine"},
 		}, true, true)
 		require.Len(t, results, 1)
-		assert.Equal(t, StatusPinned, results[0].Status)
+		assert.Equal(t, StatusUpdated, results[0].Status)
 		assert.Equal(t, "redis:8-alpine", results[0].NewTagRef)
 		require.Len(t, repls, 1)
 		assert.Equal(t, "redis:8-alpine@sha256:new", repls[0].newStr)
