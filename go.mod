@@ -3,7 +3,7 @@ module github.com/deadnews/pindock
 go 1.26
 
 require (
-	github.com/alecthomas/kong v1.14.0
+	github.com/alecthomas/kong v1.15.0
 	github.com/google/go-containerregistry v0.21.3
 	github.com/stretchr/testify v1.11.1
 )

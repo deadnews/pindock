@@ -1,6 +1,6 @@
 # pindock
 
-> Pin and update Docker image digests in Dockerfiles and compose files.
+> Pin and update Docker image digests in Dockerfiles and compose files
 
 [![PyPI: Version](https://img.shields.io/pypi/v/pindock?logo=pypi&logoColor=white)](https://pypi.org/project/pindock)
 [![AUR: version](https://img.shields.io/aur/version/pindock-bin?logo=archlinux&logoColor=white)](https://aur.archlinux.org/packages/pindock-bin)
