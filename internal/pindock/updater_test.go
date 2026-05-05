@@ -34,7 +34,6 @@ func TestParseVersionedTag(t *testing.T) {
 				assert.Equal(t, tt.wantPfx, parsed.Prefix)
 				assert.Equal(t, tt.wantVer, parsed.Version)
 				assert.Equal(t, tt.wantSfx, parsed.Suffix)
-				assert.Equal(t, tt.tag, parsed.Raw)
 			}
 		})
 	}

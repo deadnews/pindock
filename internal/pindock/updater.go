@@ -19,7 +19,6 @@ type parsedTag struct {
 	Prefix  string
 	Version []int
 	Suffix  string
-	Raw     string
 }
 
 // parseVersionedTag extracts prefix, version numbers, and suffix from tags
@@ -38,7 +37,7 @@ func parseVersionedTag(tag string) (parsedTag, bool) {
 		}
 		version[i] = n
 	}
-	return parsedTag{Prefix: m[1], Version: version, Suffix: m[3], Raw: tag}, true
+	return parsedTag{Prefix: m[1], Version: version, Suffix: m[3]}, true
 }
 
 // compareVersions returns -1, 0, or 1.
@@ -69,21 +68,21 @@ func findLatestTag(currentTag string, allTags []string) (string, bool) {
 	}
 	depth := len(current.Version)
 	var best parsedTag
-	found := false
+	var bestRaw string
 	for _, t := range allTags {
 		parsed, ok := parseVersionedTag(t)
 		if !ok || parsed.Prefix != current.Prefix || parsed.Suffix != current.Suffix || len(parsed.Version) != depth {
 			continue
 		}
-		if !found || compareVersions(parsed.Version, best.Version) > 0 {
+		if bestRaw == "" || compareVersions(parsed.Version, best.Version) > 0 {
 			best = parsed
-			found = true
+			bestRaw = t
 		}
 	}
-	if !found || compareVersions(best.Version, current.Version) <= 0 {
+	if bestRaw == "" || compareVersions(best.Version, current.Version) <= 0 {
 		return "", false
 	}
-	return best.Raw, true
+	return bestRaw, true
 }
 
 // FindLatestTags queries registries for newer versions of each ref.

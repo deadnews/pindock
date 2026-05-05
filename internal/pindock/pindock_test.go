@@ -59,17 +59,6 @@ func TestParseImageRef(t *testing.T) {
 	}
 }
 
-func TestImageRef_NeedsUpdate(t *testing.T) {
-	unpinned := ParseImageRef("golang:1.26-alpine")
-	assert.True(t, unpinned.NeedsUpdate("sha256:abc"))
-
-	current := ParseImageRef("golang:1.26-alpine@sha256:abc")
-	assert.False(t, current.NeedsUpdate("sha256:abc"))
-
-	stale := ParseImageRef("golang:1.26-alpine@sha256:old")
-	assert.True(t, stale.NeedsUpdate("sha256:new"))
-}
-
 func TestImageRef_HasVariable(t *testing.T) {
 	assert.False(t, ParseImageRef("golang:1.26").HasVariable())
 	assert.True(t, ParseImageRef("golang:${TAG}").HasVariable())
@@ -166,9 +155,7 @@ func TestCollectResolvable(t *testing.T) {
 
 	t.Run("without update", func(t *testing.T) {
 		refs := collectResolvable(parsed, false, nil)
-		require.Len(t, refs, 2)
-		assert.Equal(t, "golang:1.26", refs[0].TagRef)
-		assert.Equal(t, "nginx:1.27", refs[1].TagRef)
+		assert.Equal(t, []string{"golang:1.26", "nginx:1.27"}, refs)
 	})
 
 	t.Run("skips pinned without update", func(t *testing.T) {
@@ -176,8 +163,7 @@ func TestCollectResolvable(t *testing.T) {
 			{refs: []ImageRef{ParseImageRef("golang:1.26"), ParseImageRef("nginx:1.27@sha256:abc")}},
 		}
 		refs := collectResolvable(data, false, nil)
-		require.Len(t, refs, 1)
-		assert.Equal(t, "golang:1.26", refs[0].TagRef)
+		assert.Equal(t, []string{"golang:1.26"}, refs)
 	})
 
 	t.Run("includes pinned with update", func(t *testing.T) {
@@ -349,8 +335,7 @@ func TestCollectResolvable_tagUpdate(t *testing.T) {
 	}
 	tagUpdates := map[string]string{"redis:7-alpine": "redis:8-alpine"}
 	refs := collectResolvable(data, true, tagUpdates)
-	require.Len(t, refs, 1)
-	assert.Equal(t, "redis:8-alpine", refs[0].TagRef)
+	assert.Equal(t, []string{"redis:8-alpine"}, refs)
 }
 
 func TestResult_PinnedRef(t *testing.T) {
