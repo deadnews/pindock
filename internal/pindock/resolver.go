@@ -44,10 +44,10 @@ func simplifyError(err error) error {
 }
 
 // ResolveAll resolves digests for unique tag references concurrently.
-func ResolveAll(ctx context.Context, refs []ImageRef) (digests map[string]string, errs map[string]error) {
+func ResolveAll(ctx context.Context, tagRefs []string) (digests map[string]string, errs map[string]error) {
 	unique := make(map[string]struct{})
-	for _, r := range refs {
-		unique[r.TagRef] = struct{}{}
+	for _, t := range tagRefs {
+		unique[t] = struct{}{}
 	}
 
 	digests = make(map[string]string, len(unique))

@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -23,15 +22,10 @@ type ImageRef struct {
 // ParseImageRef splits "image:tag@sha256:..." into tag and digest.
 func ParseImageRef(s string) ImageRef {
 	s = strings.TrimSpace(s)
-	if i := strings.LastIndex(s, "@"); i > 0 {
-		return ImageRef{Original: s, TagRef: s[:i], Digest: s[i+1:]}
+	if tag, digest, ok := strings.Cut(s, "@"); ok && tag != "" {
+		return ImageRef{Original: s, TagRef: tag, Digest: digest}
 	}
 	return ImageRef{Original: s, TagRef: s}
-}
-
-// NeedsUpdate reports whether the digest differs from current.
-func (r ImageRef) NeedsUpdate(currentDigest string) bool {
-	return r.Digest != currentDigest
 }
 
 // HasVariable reports whether the ref contains $VAR or ${VAR} substitution.
@@ -82,7 +76,7 @@ func Check(ctx context.Context, files []string, update bool) ([]Result, error) {
 
 type fileData struct {
 	path    string
-	mode    fs.FileMode
+	mode    os.FileMode
 	content string
 	refs    []ImageRef
 }
@@ -134,8 +128,8 @@ func allRefs(parsed []fileData) []ImageRef {
 	return refs
 }
 
-func collectResolvable(parsed []fileData, update bool, tagUpdates map[string]string) []ImageRef {
-	var refs []ImageRef
+func collectResolvable(parsed []fileData, update bool, tagUpdates map[string]string) []string {
+	var refs []string
 	for _, f := range parsed {
 		for _, ref := range f.refs {
 			if shouldSkip(ref) {
@@ -144,12 +138,11 @@ func collectResolvable(parsed []fileData, update bool, tagUpdates map[string]str
 			if !update && ref.Digest != "" {
 				continue
 			}
-			// Use updated tag for resolution if available.
+			tagRef := ref.TagRef
 			if newTag, ok := tagUpdates[ref.TagRef]; ok {
-				refs = append(refs, ImageRef{TagRef: newTag})
-			} else {
-				refs = append(refs, ref)
+				tagRef = newTag
 			}
+			refs = append(refs, tagRef)
 		}
 	}
 	return refs
@@ -202,7 +195,7 @@ func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Re
 		}
 
 		tagChanged := newTagRef != "" && newTagRef != ref.TagRef
-		if !tagChanged && !ref.NeedsUpdate(digest) {
+		if !tagChanged && ref.Digest == digest {
 			results = append(results, Result{File: fp.path, Ref: ref, NewDigest: digest, Status: StatusCurrent})
 			continue
 		}

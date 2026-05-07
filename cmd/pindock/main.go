@@ -55,7 +55,8 @@ func (cmd *RunCmd) Run() error {
 	if err != nil {
 		return err
 	}
-	if files == nil {
+	if len(files) == 0 {
+		fmt.Fprintln(os.Stderr, "no files found")
 		return nil
 	}
 
@@ -92,7 +93,8 @@ func (cmd *CheckCmd) Run() error {
 	if err != nil {
 		return err
 	}
-	if files == nil {
+	if len(files) == 0 {
+		fmt.Fprintln(os.Stderr, "no files found")
 		return nil
 	}
 
@@ -111,7 +113,6 @@ func (cmd *CheckCmd) Run() error {
 	return nil
 }
 
-// resolveFiles returns nil, nil when no files are found.
 func resolveFiles(explicit []string, dir string) ([]string, error) {
 	if len(explicit) > 0 {
 		return explicit, nil
@@ -119,10 +120,6 @@ func resolveFiles(explicit []string, dir string) ([]string, error) {
 	files, err := pindock.DiscoverFiles(dir)
 	if err != nil {
 		return nil, fmt.Errorf("discover files: %w", err)
-	}
-	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "no files found")
-		return nil, nil
 	}
 	return files, nil
 }
@@ -161,8 +158,8 @@ func colorLabel(color, label string) string {
 
 // dimDigest dims the "@sha256:..." portion, leaving image:tag plain.
 func dimDigest(ref string) string {
-	if i := strings.LastIndex(ref, "@"); i >= 0 {
-		return ref[:i] + colorDim + ref[i:] + colorReset
+	if tag, digest, ok := strings.Cut(ref, "@"); ok {
+		return tag + colorDim + "@" + digest + colorReset
 	}
 	return ref
 }
@@ -196,17 +193,15 @@ func printResults(results []pindock.Result, fix, verbose bool) {
 }
 
 func hasVisibleResults(results []pindock.Result, verbose bool) bool {
-	for i := range results {
-		switch results[i].Status {
+	return slices.ContainsFunc(results, func(r pindock.Result) bool {
+		switch r.Status {
 		case pindock.StatusPinned, pindock.StatusUpdated, pindock.StatusError:
 			return true
 		case pindock.StatusCurrent, pindock.StatusSkipped:
-			if verbose {
-				return true
-			}
+			return verbose
 		}
-	}
-	return false
+		return false
+	})
 }
 
 func printResult(r *pindock.Result, fix, verbose bool) {

@@ -38,15 +38,12 @@ func ParseDockerfile(content string) []ImageRef {
 func joinLogicalLines(content string) []logicalLine {
 	var result []logicalLine
 	var buf strings.Builder
-
-	offset := 0
 	groupStart := 0
-	inGroup := false
+	offset := 0
 
 	for line := range strings.SplitSeq(content, "\n") {
-		if !inGroup {
+		if buf.Len() == 0 {
 			groupStart = offset
-			inGroup = true
 		}
 		trimmed := strings.TrimRight(line, " \t\r")
 		if strings.HasSuffix(trimmed, `\`) {
@@ -60,7 +57,6 @@ func joinLogicalLines(content string) []logicalLine {
 				end:   offset + len(line),
 			})
 			buf.Reset()
-			inGroup = false
 		}
 		offset += len(line) + 1
 	}
