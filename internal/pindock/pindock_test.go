@@ -385,21 +385,18 @@ func TestParseAllFiles(t *testing.T) {
 	})
 }
 
-func TestAllRefs(t *testing.T) {
+func TestUpdatableTagRefs(t *testing.T) {
 	parsed := []fileData{
 		{refs: []ImageRef{ParseImageRef("golang:1.26"), ParseImageRef("nginx:1.27")}},
-		{refs: []ImageRef{ParseImageRef("redis:7")}},
+		{refs: []ImageRef{ParseImageRef("redis:7"), ParseImageRef("scratch"), ParseImageRef("$IMAGE:tag")}},
 	}
-	refs := allRefs(parsed)
-	require.Len(t, refs, 3)
-	assert.Equal(t, "golang:1.26", refs[0].TagRef)
-	assert.Equal(t, "nginx:1.27", refs[1].TagRef)
-	assert.Equal(t, "redis:7", refs[2].TagRef)
+	refs := updatableTagRefs(parsed)
+	assert.Equal(t, []string{"golang:1.26", "nginx:1.27", "redis:7"}, refs)
 }
 
-func TestAllRefs_empty(t *testing.T) {
-	assert.Empty(t, allRefs(nil))
-	assert.Empty(t, allRefs([]fileData{{refs: nil}}))
+func TestUpdatableTagRefs_empty(t *testing.T) {
+	assert.Empty(t, updatableTagRefs(nil))
+	assert.Empty(t, updatableTagRefs([]fileData{{refs: nil}}))
 }
 
 func TestRun(t *testing.T) {

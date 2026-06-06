@@ -9,6 +9,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/deadnews/pindock/internal/registry"
 )
 
 // ImageRef is a parsed Docker image reference.
@@ -97,11 +99,11 @@ func process(ctx context.Context, files []string, fix, update bool) ([]Result, e
 
 	var rd resolveData
 	if update {
-		rd.tagUpdates, rd.tagErrors = FindLatestTags(ctx, allRefs(parsed))
+		rd.tagUpdates, rd.tagErrors = registry.FindLatestTags(ctx, updatableTagRefs(parsed))
 	}
 
 	toResolve := collectResolvable(parsed, update, rd.tagUpdates)
-	rd.digests, rd.errs = ResolveAll(ctx, toResolve)
+	rd.digests, rd.errs = registry.ResolveAll(ctx, toResolve)
 
 	var results []Result
 	for i := range parsed {
@@ -120,10 +122,16 @@ func process(ctx context.Context, files []string, fix, update bool) ([]Result, e
 	return results, nil
 }
 
-func allRefs(parsed []fileData) []ImageRef {
-	var refs []ImageRef
+// updatableTagRefs collects tag references eligible for a latest-tag lookup.
+func updatableTagRefs(parsed []fileData) []string {
+	var refs []string
 	for _, f := range parsed {
-		refs = append(refs, f.refs...)
+		for _, ref := range f.refs {
+			if shouldSkip(ref) {
+				continue
+			}
+			refs = append(refs, ref.TagRef)
+		}
 	}
 	return refs
 }

@@ -1,4 +1,4 @@
-package pindock
+package registry
 
 import (
 	"context"
@@ -85,25 +85,22 @@ func findLatestTag(currentTag string, allTags []string) (string, bool) {
 	return bestRaw, true
 }
 
-// FindLatestTags queries registries for newer versions of each ref.
+// FindLatestTags queries registries for newer versions of each tag reference.
 // Returns old→new tag updates and per-ref errors for failed repo listings.
-func FindLatestTags(ctx context.Context, refs []ImageRef) (updates map[string]string, failed map[string]error) {
+func FindLatestTags(ctx context.Context, tagRefs []string) (updates map[string]string, failed map[string]error) {
 	updates = make(map[string]string)
 	failed = make(map[string]error)
 
 	type refInfo struct {
-		tagRef string
-		tag    string
-		repo   name.Repository
+		tagRef  string
+		tag     string
+		repoStr string
 	}
 	var infos []refInfo
 	repos := make(map[string]name.Repository)
 
-	for _, ref := range refs {
-		if shouldSkip(ref) {
-			continue
-		}
-		parsed, err := name.ParseReference(ref.TagRef)
+	for _, tagRef := range tagRefs {
+		parsed, err := name.ParseReference(tagRef)
 		if err != nil {
 			continue
 		}
@@ -117,7 +114,7 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) (updates map[string]st
 		}
 		repo := tagged.Context()
 		repoStr := repo.String()
-		infos = append(infos, refInfo{tagRef: ref.TagRef, tag: tag, repo: repo})
+		infos = append(infos, refInfo{tagRef: tagRef, tag: tag, repoStr: repoStr})
 		repos[repoStr] = repo
 	}
 
@@ -155,13 +152,12 @@ func FindLatestTags(ctx context.Context, refs []ImageRef) (updates map[string]st
 		}
 		seen[info.tagRef] = true
 
-		repoStr := info.repo.String()
-		if err, ok := repoErrors[repoStr]; ok {
-			failed[info.tagRef] = fmt.Errorf("list tags for %s: %w", repoStr, err)
+		if err, ok := repoErrors[info.repoStr]; ok {
+			failed[info.tagRef] = fmt.Errorf("list tags for %s: %w", info.repoStr, err)
 			continue
 		}
 
-		newTag, found := findLatestTag(info.tag, tagCache[repoStr])
+		newTag, found := findLatestTag(info.tag, tagCache[info.repoStr])
 		if !found {
 			continue
 		}

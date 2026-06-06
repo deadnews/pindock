@@ -1,4 +1,4 @@
-package pindock
+package registry
 
 import (
 	"testing"
@@ -101,4 +101,38 @@ func TestFindLatestTag(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFindLatestTags(t *testing.T) {
+	repo := startRegistry(t) + "/lib/app"
+	for _, tag := range []string{"1.0", "1.1", "2.0", "latest"} {
+		pushTag(t, repo, tag)
+	}
+
+	t.Run("upgrades to newest", func(t *testing.T) {
+		ref := repo + ":1.0"
+		updates, failed := FindLatestTags(t.Context(), []string{ref})
+		assert.Empty(t, failed)
+		assert.Equal(t, repo+":2.0", updates[ref])
+	})
+
+	t.Run("already newest", func(t *testing.T) {
+		updates, failed := FindLatestTags(t.Context(), []string{repo + ":2.0"})
+		assert.Empty(t, failed)
+		assert.Empty(t, updates)
+	})
+
+	t.Run("latest tag ignored", func(t *testing.T) {
+		updates, failed := FindLatestTags(t.Context(), []string{repo + ":latest"})
+		assert.Empty(t, failed)
+		assert.Empty(t, updates)
+	})
+}
+
+func TestFindLatestTags_repoError(t *testing.T) {
+	host := startRegistry(t)
+	ref := host + "/lib/missing:1.0"
+	updates, failed := FindLatestTags(t.Context(), []string{ref})
+	assert.Empty(t, updates)
+	assert.Contains(t, failed, ref)
 }

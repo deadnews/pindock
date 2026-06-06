@@ -1,4 +1,5 @@
-package pindock
+// Package registry resolves image digests and latest tags from registries.
+package registry
 
 import (
 	"context"
