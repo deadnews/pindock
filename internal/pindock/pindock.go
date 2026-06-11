@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"slices"
 	"strings"
@@ -239,17 +238,11 @@ func parseAllFiles(files []string) ([]fileData, error) {
 			return nil, fmt.Errorf("unrecognized file type: %s", f)
 		}
 
-		file, err := os.Open(f) //nolint:gosec // path comes from user args or discovery
+		info, err := os.Stat(f)
 		if err != nil {
-			return nil, fmt.Errorf("open %s: %w", f, err)
-		}
-		info, err := file.Stat()
-		if err != nil {
-			_ = file.Close()
 			return nil, fmt.Errorf("stat %s: %w", f, err)
 		}
-		data, err := io.ReadAll(file)
-		_ = file.Close()
+		data, err := os.ReadFile(f) //nolint:gosec // path comes from user args or discovery
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", f, err)
 		}

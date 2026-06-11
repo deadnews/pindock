@@ -19,7 +19,7 @@ const (
 
 // Patterns aligned with Renovate file-matching conventions.
 var (
-	dockerfileRe = regexp.MustCompile(`(?i)^(?:(.+)\.)?(dockerfile|containerfile)(?:\.([^.]+))?$`)
+	dockerfileRe = regexp.MustCompile(`(?i)^(?:.+\.)?(?:dockerfile|containerfile)(?:\.([^.]+))?$`)
 	composeRe    = regexp.MustCompile(`(?i)^(?:docker-)?compose.*\.ya?ml$`)
 
 	// Reject source extensions: "dockerfile.py" vs "dockerfile.dev".
@@ -34,7 +34,7 @@ var (
 func ClassifyFile(path string) (FileType, bool) {
 	base := filepath.Base(path)
 	if m := dockerfileRe.FindStringSubmatch(base); m != nil {
-		if ext := strings.ToLower(m[3]); ext != "" && sourceExts[ext] {
+		if ext := strings.ToLower(m[1]); ext != "" && sourceExts[ext] {
 			return 0, false
 		}
 		return FileTypeDockerfile, true
