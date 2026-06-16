@@ -13,7 +13,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
-var versionRe = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+)*)(.*)$`)
+var (
+	versionRe    = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+)*)(.*)$`)
+	prereleaseRe = regexp.MustCompile(`^([-_.]?(?:alpha|beta|rc)[-_.]?)(\d+)$`)
+)
 
 type parsedTag struct {
 	Prefix  string
@@ -22,13 +25,18 @@ type parsedTag struct {
 }
 
 // parseVersionedTag extracts prefix, version numbers, and suffix from tags
-// like "7-alpine", "alpine-1.23.5", or "v1.26.0".
+// like "7-alpine", "alpine-1.23.5", "v1.26.0", or "1.2.3-rc.1".
 func parseVersionedTag(tag string) (parsedTag, bool) {
 	m := versionRe.FindStringSubmatch(tag)
 	if m == nil {
 		return parsedTag{}, false
 	}
 	parts := strings.Split(m[2], ".")
+	suffix := m[3]
+	if pr := prereleaseRe.FindStringSubmatch(suffix); pr != nil {
+		suffix = pr[1]
+		parts = append(parts, pr[2])
+	}
 	version := make([]int, len(parts))
 	for i, p := range parts {
 		n, err := strconv.Atoi(p)
@@ -37,7 +45,7 @@ func parseVersionedTag(tag string) (parsedTag, bool) {
 		}
 		version[i] = n
 	}
-	return parsedTag{Prefix: m[1], Version: version, Suffix: m[3]}, true
+	return parsedTag{Prefix: m[1], Version: version, Suffix: suffix}, true
 }
 
 // compareVersions returns -1, 0, or 1.

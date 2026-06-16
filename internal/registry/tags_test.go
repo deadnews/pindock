@@ -22,6 +22,10 @@ func TestParseVersionedTag(t *testing.T) {
 		{"alpine-1.23.5", "alpine-", []int{1, 23, 5}, "", true},
 		{"alpine-3.21", "alpine-", []int{3, 21}, "", true},
 		{"v1.26.0", "v", []int{1, 26, 0}, "", true},
+		{"0.0.1-alpha.3", "", []int{0, 0, 1, 3}, "-alpha.", true},
+		{"1.2.3-rc.1", "", []int{1, 2, 3, 1}, "-rc.", true},
+		{"1.2.3-beta4", "", []int{1, 2, 3, 4}, "-beta", true},
+		{"1.2.3-debian-11", "", []int{1, 2, 3}, "-debian-11", true},
 		{"latest", "", nil, "", false},
 		{"alpine", "", nil, "", false},
 		{"bookworm", "", nil, "", false},
@@ -69,6 +73,8 @@ func TestFindLatestTag(t *testing.T) {
 		"alpine-1.23.3", "alpine-1.23.4", "alpine-1.23.5",
 		"alpine-3.20", "alpine-3.21",
 		"v1.25.0", "v1.26.0", "v2.0.0",
+		"0.0.1-alpha.3", "0.0.1-alpha.4", "0.0.2-alpha.1", "0.0.2",
+		"1.2.3-debian-11", "1.2.3-debian-12",
 		"latest", "alpine", "bookworm",
 	}
 
@@ -91,6 +97,10 @@ func TestFindLatestTag(t *testing.T) {
 		{"prefix alpine already latest", "alpine-1.23.5", "", false},
 		{"prefix v semver", "v1.26.0", "v2.0.0", true},
 		{"no matching prefix", "rel-1.23.3", "", false},
+		{"prerelease newest in stream", "0.0.1-alpha.3", "0.0.2-alpha.1", true},
+		{"stable ignores prerelease", "0.0.2", "", false},
+		{"prerelease stays in stream", "0.0.2-alpha.1", "", false},
+		{"distro suffix fixed", "1.2.3-debian-11", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
