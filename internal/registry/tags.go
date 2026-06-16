@@ -98,8 +98,13 @@ func FindLatestTags(ctx context.Context, tagRefs []string) (updates map[string]s
 	}
 	var infos []refInfo
 	repos := make(map[string]name.Repository)
+	seen := make(map[string]bool)
 
 	for _, tagRef := range tagRefs {
+		if seen[tagRef] {
+			continue
+		}
+		seen[tagRef] = true
 		parsed, err := name.ParseReference(tagRef)
 		if err != nil {
 			continue
@@ -118,40 +123,9 @@ func FindLatestTags(ctx context.Context, tagRefs []string) (updates map[string]s
 		repos[repoStr] = repo
 	}
 
-	tagCache := make(map[string][]string)
-	repoErrors := make(map[string]error)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, maxConcurrency)
+	tagCache, repoErrors := listRepoTags(ctx, repos)
 
-	for repoStr, repo := range repos {
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			tags, err := remote.List(repo,
-				remote.WithAuthFromKeychain(authn.DefaultKeychain),
-				remote.WithContext(ctx),
-			)
-
-			mu.Lock()
-			defer mu.Unlock()
-			if err == nil {
-				tagCache[repoStr] = tags
-			} else {
-				repoErrors[repoStr] = simplifyError(err)
-			}
-		})
-	}
-	wg.Wait()
-
-	seen := make(map[string]bool)
 	for _, info := range infos {
-		if seen[info.tagRef] {
-			continue
-		}
-		seen[info.tagRef] = true
-
 		if err, ok := repoErrors[info.repoStr]; ok {
 			failed[info.tagRef] = fmt.Errorf("list tags for %s: %w", info.repoStr, err)
 			continue
@@ -170,4 +144,36 @@ func FindLatestTags(ctx context.Context, tagRefs []string) (updates map[string]s
 	}
 
 	return updates, failed
+}
+
+// listRepoTags lists all tags for each repository concurrently.
+func listRepoTags(ctx context.Context, repos map[string]name.Repository) (tags map[string][]string, errs map[string]error) {
+	tags = make(map[string][]string, len(repos))
+	errs = make(map[string]error)
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrency)
+
+	for repoStr, repo := range repos {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			list, err := remote.List(repo,
+				remote.WithAuthFromKeychain(authn.DefaultKeychain),
+				remote.WithContext(ctx),
+			)
+
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				tags[repoStr] = list
+			} else {
+				errs[repoStr] = simplifyError(err)
+			}
+		})
+	}
+	wg.Wait()
+	return tags, errs
 }

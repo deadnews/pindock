@@ -2,6 +2,8 @@ package registry
 
 import (
 	"errors"
+	"io"
+	"log"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -18,7 +20,7 @@ import (
 // startRegistry serves an in-memory registry and returns its host:port.
 func startRegistry(t *testing.T) string {
 	t.Helper()
-	srv := httptest.NewServer(registry.New())
+	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
 	t.Cleanup(srv.Close)
 	return strings.TrimPrefix(srv.URL, "http://")
 }

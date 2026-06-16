@@ -3,10 +3,18 @@ package pindock
 import (
 	"context"
 	"errors"
+	"io"
+	"log"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/registry"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -467,6 +475,89 @@ func TestRun(t *testing.T) {
 		_, err := Run(context.Background(), []string{"README.md"}, false)
 		assert.Error(t, err)
 	})
+}
+
+// startRegistry serves an in-memory registry and returns its host:port.
+func startRegistry(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
+	t.Cleanup(srv.Close)
+	return strings.TrimPrefix(srv.URL, "http://")
+}
+
+// pushTag writes a random image to repo:tag and returns its digest.
+func pushTag(t *testing.T, repo, tag string) string {
+	t.Helper()
+	img, err := random.Image(256, 1)
+	require.NoError(t, err)
+	ref, err := name.NewTag(repo + ":" + tag)
+	require.NoError(t, err)
+	require.NoError(t, remote.Write(ref, img))
+	digest, err := img.Digest()
+	require.NoError(t, err)
+	return digest.String()
+}
+
+func TestRun_pinsFilesEndToEnd(t *testing.T) {
+	host := startRegistry(t)
+	goRepo := host + "/lib/golang"
+	staticRepo := host + "/distroless/static"
+	pgRepo := host + "/lib/postgres"
+	dGo := pushTag(t, goRepo, "1.26-alpine")
+	dStatic := pushTag(t, staticRepo, "nonroot")
+	dPg := pushTag(t, pgRepo, "18-alpine")
+
+	dir := t.TempDir()
+	df := filepath.Join(dir, "Dockerfile")
+	dockerfile := "# build stage\n" +
+		"FROM " + goRepo + ":1.26-alpine AS builder\n" +
+		"WORKDIR /app\n" +
+		"RUN go build \\\n    -o /bin/app ./cmd/app\n\n" +
+		"FROM " + staticRepo + ":nonroot\n" +
+		"COPY --from=builder /bin/app /bin/app\n"
+	require.NoError(t, os.WriteFile(df, []byte(dockerfile), 0o644))
+
+	cf := filepath.Join(dir, "compose.yml")
+	compose := "services:\n  db:\n    image: " + pgRepo + ":18-alpine\n  app:\n    image: ${IMG}\n"
+	require.NoError(t, os.WriteFile(cf, []byte(compose), 0o600))
+
+	results, err := Run(context.Background(), []string{df, cf}, false)
+	require.NoError(t, err)
+	require.Len(t, results, 4)
+	assert.Equal(t, StatusPinned, results[0].Status)
+	assert.Equal(t, StatusPinned, results[1].Status)
+	assert.Equal(t, StatusPinned, results[2].Status)
+	assert.Equal(t, StatusSkipped, results[3].Status)
+
+	wantDf := "# build stage\n" +
+		"FROM " + goRepo + ":1.26-alpine@" + dGo + " AS builder\n" +
+		"WORKDIR /app\n" +
+		"RUN go build \\\n    -o /bin/app ./cmd/app\n\n" +
+		"FROM " + staticRepo + ":nonroot@" + dStatic + "\n" +
+		"COPY --from=builder /bin/app /bin/app\n"
+	gotDf, err := os.ReadFile(df)
+	require.NoError(t, err)
+	assert.Equal(t, wantDf, string(gotDf))
+
+	wantCf := "services:\n  db:\n    image: " + pgRepo + ":18-alpine@" + dPg + "\n  app:\n    image: ${IMG}\n"
+	gotCf, err := os.ReadFile(cf)
+	require.NoError(t, err)
+	assert.Equal(t, wantCf, string(gotCf))
+
+	info, err := os.Stat(cf)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	// Second run is a no-op: everything already pinned.
+	results, err = Run(context.Background(), []string{df, cf}, false)
+	require.NoError(t, err)
+	require.Len(t, results, 4)
+	for _, r := range results[:3] {
+		assert.Equal(t, StatusCurrent, r.Status)
+	}
+	gotDf2, err := os.ReadFile(df)
+	require.NoError(t, err)
+	assert.Equal(t, wantDf, string(gotDf2))
 }
 
 func TestCheck(t *testing.T) {

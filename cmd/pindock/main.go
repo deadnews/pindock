@@ -46,7 +46,7 @@ type CLI struct {
 type RunCmd struct {
 	Files   []string `arg:"" optional:"" help:"Files to process."`
 	Dir     string   `short:"C" default:"." help:"Directory to scan."`
-	Update  bool     `short:"u" help:"Also update pinned digests to latest."`
+	Update  bool     `short:"u" help:"Also update tags and pinned digests to latest."`
 	Verbose bool     `short:"v" help:"Show all images, including pinned."`
 }
 
@@ -79,7 +79,7 @@ func (cmd *RunCmd) Run() error {
 type CheckCmd struct {
 	Files   []string `arg:"" optional:"" help:"Files to process."`
 	Dir     string   `short:"C" default:"." help:"Directory to scan."`
-	Update  bool     `short:"u" help:"Also check pinned digests for updates."`
+	Update  bool     `short:"u" help:"Also check tags and pinned digests for updates."`
 	Verbose bool     `short:"v" help:"Show all images, including pinned."`
 }
 
@@ -164,29 +164,22 @@ func dimDigest(ref string) string {
 	return ref
 }
 
+// printResults prints results grouped by file.
 func printResults(results []pindock.Result, fix, verbose bool) {
-	type group struct {
-		file    string
-		results []pindock.Result
-	}
-	seen := make(map[string]int)
-	var groups []group
-	for i := range results {
-		if idx, ok := seen[results[i].File]; ok {
-			groups[idx].results = append(groups[idx].results, results[i])
-		} else {
-			seen[results[i].File] = len(groups)
-			groups = append(groups, group{file: results[i].File, results: []pindock.Result{results[i]}})
+	for start := 0; start < len(results); {
+		end := start + 1
+		for end < len(results) && results[end].File == results[start].File {
+			end++
 		}
-	}
+		group := results[start:end]
+		start = end
 
-	for _, g := range groups {
-		if !hasVisibleResults(g.results, verbose) {
+		if !hasVisibleResults(group, verbose) {
 			continue
 		}
-		fmt.Printf("%s%s%s\n", colorBold, g.file, colorReset)
-		for i := range g.results {
-			printResult(&g.results[i], fix, verbose)
+		fmt.Printf("%s%s%s\n", colorBold, group[0].File, colorReset)
+		for i := range group {
+			printResult(&group[i], fix, verbose)
 		}
 		fmt.Println()
 	}

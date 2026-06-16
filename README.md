@@ -37,12 +37,12 @@ Commands:
 
 run flags:
   -C, --dir=.      Directory to scan.
-  -u, --update     Also update pinned digests to latest.
+  -u, --update     Also update tags and pinned digests to latest.
   -v, --verbose    Show all images, including pinned.
 
 check flags:
   -C, --dir=.      Directory to scan.
-  -u, --update     Also check pinned digests for updates.
+  -u, --update     Also check tags and pinned digests for updates.
   -v, --verbose    Show all images, including pinned.
 ```
 

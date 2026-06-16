@@ -1,6 +1,7 @@
 package pindock
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -149,6 +150,34 @@ ENTRYPOINT ["/bin/app"]`
 		require.Len(t, refs, 1)
 	})
 
+	t.Run("comment with trailing backslash does not swallow instruction", func(t *testing.T) {
+		content := "# build stage \\\nFROM golang:1.26"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "golang:1.26", refs[0].TagRef)
+	})
+
+	t.Run("comment inside continuation does not terminate it", func(t *testing.T) {
+		content := "FROM golang:1.26\nRUN --mount=type=cache,target=/c \\\n    # explain\n    --mount=from=ghcr.io/tool:1.0,target=/t cmd"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 2)
+		assert.Equal(t, "ghcr.io/tool:1.0", refs[1].TagRef)
+	})
+
+	t.Run("stage name matching is case-insensitive", func(t *testing.T) {
+		content := "FROM golang:1.26 AS Builder\nCOPY --from=builder /app /app"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "golang:1.26", refs[0].TagRef)
+	})
+
+	t.Run("FROM stage alias case-insensitive", func(t *testing.T) {
+		content := "FROM golang:1.26 AS base\nFROM BASE AS builder"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "golang:1.26", refs[0].TagRef)
+	})
+
 	t.Run("trailing continuation line", func(t *testing.T) {
 		content := "FROM golang:1.26 \\"
 		refs := ParseDockerfile(content)
@@ -240,6 +269,21 @@ func TestParseDockerfile_offsets(t *testing.T) {
 		for _, ref := range refs {
 			assert.Equal(t, ref.Original, content[ref.Start:ref.Start+len(ref.Original)])
 		}
+	})
+
+	t.Run("comment containing ref text does not capture offset", func(t *testing.T) {
+		content := "# use golang:1.26 \\\nFROM golang:1.26"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, len("# use golang:1.26 \\\nFROM "), refs[0].Start)
+	})
+
+	t.Run("comment inside continuation does not capture offset", func(t *testing.T) {
+		content := "RUN --mount=type=cache,target=/c \\\n    # needs tool:1.0\n    --mount=from=tool:1.0,target=/t cmd"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 1)
+		assert.Equal(t, refs[0].Original, content[refs[0].Start:refs[0].Start+len(refs[0].Original)])
+		assert.Greater(t, refs[0].Start, strings.Index(content, "# needs"))
 	})
 
 	t.Run("multi-stage offsets", func(t *testing.T) {
