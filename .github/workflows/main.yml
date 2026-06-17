@@ -62,7 +62,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Build wheels
-        uses: deadnews/go-wheel-action@7245bc954b671543ca4bccd3e505ec67c5daa816 # v1.0.1
+        uses: deadnews/go-wheel-action@43cbcbbfa58c9b275384331096519d169ab53383 # v1.0.2
         with:
           package: ./cmd/pindock
           ldflags: -s -X main.version=${{ github.ref_name }}

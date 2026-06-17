@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.0.1](https://github.com/deadnews/pindock/compare/v1.0.0...v1.0.1) - 2026-06-17
+
+### Features
+
+- bump prerelease counter tags - ([b706fe6](https://github.com/deadnews/pindock/commit/b706fe6fb91fae517e0674506ddc72d113dd3080))
+
+### Bug fixes
+
+- parse `Dockerfile` comments per spec ([#7](https://github.com/deadnews/pindock/issues/7)) - ([e7a7ccc](https://github.com/deadnews/pindock/commit/e7a7cccfdc95b77ccfb6f5eca1b9cb4ce6567888))
+
+### Refactor
+
+- extract registry package - ([5841076](https://github.com/deadnews/pindock/commit/58410761fb65d0e1b9ae2ac8763b7a0d7b1c2fbc))
+- simplify internal helpers and ref parsing ([#4](https://github.com/deadnews/pindock/issues/4)) - ([9eefd56](https://github.com/deadnews/pindock/commit/9eefd5644ad4ce408988a802d073e6d06074c81a))
+
+### Chores
+
+- _(renovate)_ ignore dockerfile test file - ([c85fa0d](https://github.com/deadnews/pindock/commit/c85fa0da03e604a3ab14a452e786a5bdef33988c))
+
 ## [1.0.0](https://github.com/deadnews/pindock/commits/v1.0.0) - 2026-04-01
 
 ### Features
