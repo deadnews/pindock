@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/alecthomas/kong v1.15.0
-	github.com/google/go-containerregistry v0.21.6
+	github.com/google/go-containerregistry v0.21.7
 )
 
 require github.com/stretchr/testify v1.11.1
