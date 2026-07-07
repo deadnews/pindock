@@ -7,11 +7,17 @@ check:
 
 run: copy pin update remove
 run-update: copy update remove
+run-check: copy pin pin-check update update-check remove
+
 copy:
 	mkdir -p test; cp -r .test/* test/
 pin:
 	go run ./cmd/pindock run -v -C test
+pin-check:
+	go run ./cmd/pindock check -v -C test
 update:
 	go run ./cmd/pindock run --update -v -C test
+update-check:
+	go run ./cmd/pindock check --update -v -C test
 remove:
 	rm -rf test
