@@ -153,7 +153,7 @@ func isTerminal() bool {
 }
 
 func colorLabel(color, label string) string {
-	return color + fmt.Sprintf("%-8s", label) + colorReset
+	return fmt.Sprintf("%s%-8s%s", color, label, colorReset)
 }
 
 // dimDigest dims the "@sha256:..." portion, leaving image:tag plain.

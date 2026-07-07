@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,9 +20,9 @@ var (
 )
 
 type parsedTag struct {
-	Prefix  string
-	Version []int
-	Suffix  string
+	prefix  string
+	version []int
+	suffix  string
 }
 
 // parseVersionedTag extracts prefix, version numbers, and suffix from tags
@@ -45,27 +46,7 @@ func parseVersionedTag(tag string) (parsedTag, bool) {
 		}
 		version[i] = n
 	}
-	return parsedTag{Prefix: m[1], Version: version, Suffix: suffix}, true
-}
-
-// compareVersions returns -1, 0, or 1.
-func compareVersions(a, b []int) int {
-	for i := range max(len(a), len(b)) {
-		va, vb := 0, 0
-		if i < len(a) {
-			va = a[i]
-		}
-		if i < len(b) {
-			vb = b[i]
-		}
-		if va < vb {
-			return -1
-		}
-		if va > vb {
-			return 1
-		}
-	}
-	return 0
+	return parsedTag{prefix: m[1], version: version, suffix: suffix}, true
 }
 
 // findLatestTag finds the latest tag matching the same prefix, suffix, and version depth.
@@ -74,20 +55,20 @@ func findLatestTag(currentTag string, allTags []string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	depth := len(current.Version)
+	depth := len(current.version)
 	var best parsedTag
 	var bestRaw string
 	for _, t := range allTags {
 		parsed, ok := parseVersionedTag(t)
-		if !ok || parsed.Prefix != current.Prefix || parsed.Suffix != current.Suffix || len(parsed.Version) != depth {
+		if !ok || parsed.prefix != current.prefix || parsed.suffix != current.suffix || len(parsed.version) != depth {
 			continue
 		}
-		if bestRaw == "" || compareVersions(parsed.Version, best.Version) > 0 {
+		if bestRaw == "" || slices.Compare(parsed.version, best.version) > 0 {
 			best = parsed
 			bestRaw = t
 		}
 	}
-	if bestRaw == "" || compareVersions(best.Version, current.Version) <= 0 {
+	if bestRaw == "" || slices.Compare(best.version, current.version) <= 0 {
 		return "", false
 	}
 	return bestRaw, true

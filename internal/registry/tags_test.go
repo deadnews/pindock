@@ -35,32 +35,10 @@ func TestParseVersionedTag(t *testing.T) {
 			parsed, ok := parseVersionedTag(tt.tag)
 			assert.Equal(t, tt.wantOK, ok)
 			if ok {
-				assert.Equal(t, tt.wantPfx, parsed.Prefix)
-				assert.Equal(t, tt.wantVer, parsed.Version)
-				assert.Equal(t, tt.wantSfx, parsed.Suffix)
+				assert.Equal(t, tt.wantPfx, parsed.prefix)
+				assert.Equal(t, tt.wantVer, parsed.version)
+				assert.Equal(t, tt.wantSfx, parsed.suffix)
 			}
-		})
-	}
-}
-
-func TestCompareVersions(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b []int
-		want int
-	}{
-		{"equal single", []int{7}, []int{7}, 0},
-		{"less single", []int{7}, []int{8}, -1},
-		{"greater single", []int{8}, []int{7}, 1},
-		{"equal multi", []int{1, 26}, []int{1, 26}, 0},
-		{"less minor", []int{1, 25}, []int{1, 26}, -1},
-		{"greater major", []int{2, 0}, []int{1, 26}, 1},
-		{"different lengths padded", []int{1}, []int{1, 0}, 0},
-		{"different lengths less", []int{1}, []int{1, 1}, -1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, compareVersions(tt.a, tt.b))
 		})
 	}
 }

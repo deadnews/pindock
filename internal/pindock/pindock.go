@@ -203,7 +203,7 @@ func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Re
 
 		tagChanged := newTagRef != "" && newTagRef != ref.TagRef
 		if !tagChanged && ref.Digest == digest {
-			results = append(results, Result{File: fp.path, Ref: ref, NewDigest: digest, Status: StatusCurrent})
+			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusCurrent})
 			continue
 		}
 
