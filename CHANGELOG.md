@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.0](https://github.com/deadnews/pindock/compare/v1.0.1...v1.1.0) - 2026-07-07
+
+### Features
+
+- resolve `latest` to version tag and cap updates at `latest` ([#11](https://github.com/deadnews/pindock/issues/11)) - ([048afee](https://github.com/deadnews/pindock/commit/048afee7f585ba31031a0740d265d41c5715f9de))
+
+### Dependencies
+
+- update module github.com/google/go-containerregistry to v0.21.7 ([#9](https://github.com/deadnews/pindock/issues/9)) - ([c664a03](https://github.com/deadnews/pindock/commit/c664a03701bbfee41db68faa87ef2bd88923545d))
+
 ## [1.0.1](https://github.com/deadnews/pindock/compare/v1.0.0...v1.0.1) - 2026-06-17
 
 ### Features
