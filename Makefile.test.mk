@@ -6,6 +6,7 @@ check:
 	go run ./cmd/pindock check -v -C .test; test $$? -eq 1
 
 run: copy pin update remove
+run-update: copy update remove
 copy:
 	mkdir -p test; cp -r .test/* test/
 pin:

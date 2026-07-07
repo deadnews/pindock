@@ -57,6 +57,11 @@ func TestHasVisibleResults(t *testing.T) {
 		assert.False(t, hasVisibleResults(results, false))
 	})
 
+	t.Run("held visible without verbose", func(t *testing.T) {
+		results := []pindock.Result{{Status: pindock.StatusHeld}}
+		assert.True(t, hasVisibleResults(results, false))
+	})
+
 	t.Run("skipped visible with verbose", func(t *testing.T) {
 		results := []pindock.Result{{Status: pindock.StatusSkipped}}
 		assert.True(t, hasVisibleResults(results, true))
@@ -169,6 +174,18 @@ func TestPrintResult(t *testing.T) {
 		assert.Empty(t, out)
 	})
 
+	t.Run("held", func(t *testing.T) {
+		r := pindock.Result{
+			File:    "Dockerfile",
+			Ref:     pindock.ParseImageRef("xray:26.3.27@sha256:abc"),
+			HeldRef: "xray:26.6.27",
+			Status:  pindock.StatusHeld,
+		}
+		out := captureStdout(t, func() { printResult(&r, false, false) })
+		assert.Contains(t, out, "HELD")
+		assert.Contains(t, out, "→ xray:26.6.27  Beyond latest")
+	})
+
 	t.Run("error", func(t *testing.T) {
 		r := pindock.Result{
 			File:   "Dockerfile",
@@ -219,29 +236,23 @@ func TestPrintResults(t *testing.T) {
 }
 
 func TestSetupColors_noColorEnv(t *testing.T) {
-	defer func() {
-		colorRed = ""
-		colorGreen = ""
-		colorYellow = ""
-		colorDim = ""
-		colorBold = ""
-		colorReset = ""
-	}()
+	defer func() { colorEnabled = false }()
 
-	colorRed = "\033[31m"
-	colorGreen = "\033[32m"
-	colorYellow = "\033[33m"
-	colorDim = "\033[2m"
-	colorBold = "\033[1m"
-	colorReset = "\033[0m"
-
+	colorEnabled = true
 	t.Setenv("NO_COLOR", "1")
 	setupColors()
 
-	assert.Empty(t, colorRed)
-	assert.Empty(t, colorGreen)
-	assert.Empty(t, colorYellow)
-	assert.Empty(t, colorDim)
-	assert.Empty(t, colorBold)
-	assert.Empty(t, colorReset)
+	assert.False(t, colorEnabled)
+}
+
+func TestPaint(t *testing.T) {
+	t.Run("disabled returns plain text", func(t *testing.T) {
+		assert.Equal(t, "HELD", paint(colorCyan, "HELD"))
+	})
+
+	t.Run("enabled wraps in color codes", func(t *testing.T) {
+		defer func() { colorEnabled = false }()
+		colorEnabled = true
+		assert.Equal(t, colorCyan+"HELD"+colorReset, paint(colorCyan, "HELD"))
+	})
 }

@@ -9,24 +9,21 @@ import (
 	"github.com/deadnews/pindock/internal/pindock"
 )
 
-var (
+const (
+	colorReset  = "\033[0m"
+	colorBold   = "\033[1m"
+	colorDim    = "\033[2m"
 	colorRed    = "\033[31m"
 	colorGreen  = "\033[32m"
 	colorYellow = "\033[33m"
-	colorDim    = "\033[2m"
-	colorBold   = "\033[1m"
-	colorReset  = "\033[0m"
+	colorCyan   = "\033[36m"
 )
 
+var colorEnabled bool
+
 func setupColors() {
-	if _, ok := os.LookupEnv("NO_COLOR"); ok || !isTerminal() {
-		colorRed = ""
-		colorGreen = ""
-		colorYellow = ""
-		colorDim = ""
-		colorBold = ""
-		colorReset = ""
-	}
+	_, noColor := os.LookupEnv("NO_COLOR")
+	colorEnabled = !noColor && isTerminal()
 }
 
 func isTerminal() bool {
@@ -37,14 +34,23 @@ func isTerminal() bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
-func colorLabel(color, label string) string {
-	return fmt.Sprintf("%s%-8s%s", color, label, colorReset)
+// paint wraps s in the given color code when color output is enabled.
+func paint(code, s string) string {
+	if !colorEnabled {
+		return s
+	}
+	return code + s + colorReset
+}
+
+// colorLabel renders label padded to a fixed width in the given color.
+func colorLabel(code, label string) string {
+	return paint(code, fmt.Sprintf("%-8s", label))
 }
 
 // dimDigest dims the "@sha256:..." portion, leaving image:tag plain.
 func dimDigest(ref string) string {
 	if tag, digest, ok := strings.Cut(ref, "@"); ok {
-		return tag + colorDim + "@" + digest + colorReset
+		return tag + paint(colorDim, "@"+digest)
 	}
 	return ref
 }
@@ -62,7 +68,7 @@ func printResults(results []pindock.Result, fix, verbose bool) {
 		if !hasVisibleResults(group, verbose) {
 			continue
 		}
-		fmt.Printf("%s%s%s\n", colorBold, group[0].File, colorReset)
+		fmt.Printf("%s\n", paint(colorBold, group[0].File))
 		for i := range group {
 			printResult(&group[i], fix, verbose)
 		}
@@ -73,7 +79,7 @@ func printResults(results []pindock.Result, fix, verbose bool) {
 func hasVisibleResults(results []pindock.Result, verbose bool) bool {
 	return slices.ContainsFunc(results, func(r pindock.Result) bool {
 		switch r.Status {
-		case pindock.StatusPinned, pindock.StatusUpdated, pindock.StatusError:
+		case pindock.StatusPinned, pindock.StatusUpdated, pindock.StatusError, pindock.StatusHeld:
 			return true
 		case pindock.StatusCurrent, pindock.StatusSkipped:
 			return verbose
@@ -83,7 +89,7 @@ func hasVisibleResults(results []pindock.Result, verbose bool) bool {
 }
 
 func printResult(r *pindock.Result, fix, verbose bool) {
-	arrow := colorDim + "→" + colorReset
+	arrow := paint(colorDim, "→")
 	switch r.Status {
 	case pindock.StatusPinned:
 		label := colorLabel(colorRed, "UNPINNED")
@@ -105,7 +111,10 @@ func printResult(r *pindock.Result, fix, verbose bool) {
 		if verbose {
 			fmt.Printf("  %s  %s\n", colorLabel(colorDim, "SKIP"), r.Ref.Original)
 		}
+	case pindock.StatusHeld:
+		fmt.Printf("  %s  %s\n          %s %s  %s\n",
+			colorLabel(colorCyan, "HELD"), dimDigest(r.Ref.Original), arrow, r.HeldRef, paint(colorCyan, "Beyond latest"))
 	case pindock.StatusError:
-		fmt.Printf("  %s  %s  %s%v%s\n", colorLabel(colorRed, "ERROR"), r.Ref.TagRef, colorRed, r.Err, colorReset)
+		fmt.Printf("  %s  %s  %s\n", colorLabel(colorRed, "ERROR"), r.Ref.TagRef, paint(colorRed, r.Err.Error()))
 	}
 }

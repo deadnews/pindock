@@ -23,7 +23,11 @@ func ResolveDigest(ctx context.Context, tagRef string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse reference %q: %w", tagRef, err)
 	}
+	return headDigest(ctx, ref)
+}
 
+// headDigest fetches the manifest digest for a parsed reference.
+func headDigest(ctx context.Context, ref name.Reference) (string, error) {
 	desc, err := remote.Head(ref,
 		remote.WithAuthFromKeychain(authn.DefaultKeychain),
 		remote.WithContext(ctx),
@@ -31,7 +35,6 @@ func ResolveDigest(ctx context.Context, tagRef string) (string, error) {
 	if err != nil {
 		return "", simplifyError(err)
 	}
-
 	return desc.Digest.String(), nil
 }
 
@@ -44,37 +47,92 @@ func simplifyError(err error) error {
 	return err
 }
 
+// listTags lists all tags in a repository.
+func listTags(ctx context.Context, repo name.Repository) ([]string, error) {
+	tags, err := remote.List(repo,
+		remote.WithAuthFromKeychain(authn.DefaultKeychain),
+		remote.WithContext(ctx),
+	)
+	if err != nil {
+		return nil, simplifyError(err)
+	}
+	return tags, nil
+}
+
+// taggedRef is a tag reference resolved to its repository and bare tag.
+type taggedRef struct {
+	tagRef  string
+	tag     string
+	repoStr string
+}
+
+// taggedRefs parses unique tag references, keeping latest/untagged ones when
+// wantLatest is true and versioned ones otherwise.
+func taggedRefs(tagRefs []string, wantLatest bool) (refs []taggedRef, repos map[string]name.Repository) {
+	repos = make(map[string]name.Repository)
+	seen := make(map[string]bool)
+
+	for _, tagRef := range tagRefs {
+		if seen[tagRef] {
+			continue
+		}
+		seen[tagRef] = true
+		parsed, err := name.ParseReference(tagRef)
+		if err != nil {
+			continue
+		}
+		tagged, ok := parsed.(name.Tag)
+		if !ok {
+			continue
+		}
+		tag := tagged.TagStr()
+		if (tag == "latest") != wantLatest {
+			continue
+		}
+		repoStr := tagged.Context().String()
+		refs = append(refs, taggedRef{tagRef: tagRef, tag: tag, repoStr: repoStr})
+		repos[repoStr] = tagged.Context()
+	}
+	return refs, repos
+}
+
 // ResolveAll resolves digests for unique tag references concurrently.
 func ResolveAll(ctx context.Context, tagRefs []string) (digests map[string]string, errs map[string]error) {
-	unique := make(map[string]struct{})
+	unique := make(map[string]string, len(tagRefs))
 	for _, t := range tagRefs {
-		unique[t] = struct{}{}
+		unique[t] = t
 	}
+	return runConcurrently(unique, func(tagRef string) (string, error) {
+		return ResolveDigest(ctx, tagRef)
+	})
+}
 
-	digests = make(map[string]string, len(unique))
-	errs = make(map[string]error)
+// runConcurrently applies fn to each item with bounded concurrency,
+// collecting per-key results and errors.
+func runConcurrently[K comparable, T, V any](items map[K]T, fn func(T) (V, error)) (results map[K]V, errs map[K]error) {
+	results = make(map[K]V, len(items))
+	errs = make(map[K]error)
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrency)
 
-	for tagRef := range unique {
+	for key, item := range items {
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			digest, err := ResolveDigest(ctx, tagRef)
+			result, err := fn(item)
 
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				errs[tagRef] = err
+				errs[key] = err
 			} else {
-				digests[tagRef] = digest
+				results[key] = result
 			}
 		})
 	}
-
 	wg.Wait()
-	return digests, errs
+	return results, errs
 }

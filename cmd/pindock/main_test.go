@@ -10,12 +10,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	colorRed = ""
-	colorGreen = ""
-	colorYellow = ""
-	colorDim = ""
-	colorBold = ""
-	colorReset = ""
+	colorEnabled = false
 	os.Exit(m.Run())
 }
 

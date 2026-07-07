@@ -324,6 +324,30 @@ func TestClassifyRefs_tagUpdate(t *testing.T) {
 		assert.Empty(t, repls)
 	})
 
+	t.Run("current ref with held update reported held", func(t *testing.T) {
+		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("xray:26.3.27@sha256:abc")}}
+		results, repls := classifyRefs(fp, &resolveData{
+			digests: map[string]string{"xray:26.3.27": "sha256:abc"},
+			tagHeld: map[string]string{"xray:26.3.27": "xray:26.6.27"},
+		}, true, true)
+		require.Len(t, results, 1)
+		assert.Equal(t, StatusHeld, results[0].Status)
+		assert.Equal(t, "xray:26.6.27", results[0].HeldRef)
+		assert.Empty(t, repls)
+	})
+
+	t.Run("held skipped when digest updates", func(t *testing.T) {
+		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("xray:26.3.27@sha256:old")}}
+		results, repls := classifyRefs(fp, &resolveData{
+			digests: map[string]string{"xray:26.3.27": "sha256:new"},
+			tagHeld: map[string]string{"xray:26.3.27": "xray:26.6.27"},
+		}, true, true)
+		require.Len(t, results, 1)
+		assert.Equal(t, StatusUpdated, results[0].Status)
+		assert.Empty(t, results[0].HeldRef)
+		require.Len(t, repls, 1)
+	})
+
 	t.Run("tag listing error on unpinned ref still pins", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("redis:7-alpine")}}
 		results, repls := classifyRefs(fp, &resolveData{
@@ -393,18 +417,26 @@ func TestParseAllFiles(t *testing.T) {
 	})
 }
 
-func TestUpdatableTagRefs(t *testing.T) {
+func TestTagLookupRefs(t *testing.T) {
 	parsed := []fileData{
-		{refs: []ImageRef{ParseImageRef("golang:1.26"), ParseImageRef("nginx:1.27")}},
+		{refs: []ImageRef{ParseImageRef("golang:1.26"), ParseImageRef("nginx:1.27@sha256:abc")}},
 		{refs: []ImageRef{ParseImageRef("redis:7"), ParseImageRef("scratch"), ParseImageRef("$IMAGE:tag")}},
 	}
-	refs := updatableTagRefs(parsed)
-	assert.Equal(t, []string{"golang:1.26", "nginx:1.27", "redis:7"}, refs)
+
+	t.Run("include pinned", func(t *testing.T) {
+		refs := tagLookupRefs(parsed, true)
+		assert.Equal(t, []string{"golang:1.26", "nginx:1.27", "redis:7"}, refs)
+	})
+
+	t.Run("exclude pinned", func(t *testing.T) {
+		refs := tagLookupRefs(parsed, false)
+		assert.Equal(t, []string{"golang:1.26", "redis:7"}, refs)
+	})
 }
 
-func TestUpdatableTagRefs_empty(t *testing.T) {
-	assert.Empty(t, updatableTagRefs(nil))
-	assert.Empty(t, updatableTagRefs([]fileData{{refs: nil}}))
+func TestTagLookupRefs_empty(t *testing.T) {
+	assert.Empty(t, tagLookupRefs(nil, true))
+	assert.Empty(t, tagLookupRefs([]fileData{{refs: nil}}, false))
 }
 
 func TestRun(t *testing.T) {
@@ -485,14 +517,16 @@ func startRegistry(t *testing.T) string {
 	return strings.TrimPrefix(srv.URL, "http://")
 }
 
-// pushTag writes a random image to repo:tag and returns its digest.
-func pushTag(t *testing.T, repo, tag string) string {
+// pushTag writes one random image to repo under each tag and returns its digest.
+func pushTag(t *testing.T, repo string, tags ...string) string {
 	t.Helper()
 	img, err := random.Image(256, 1)
 	require.NoError(t, err)
-	ref, err := name.NewTag(repo + ":" + tag)
-	require.NoError(t, err)
-	require.NoError(t, remote.Write(ref, img))
+	for _, tag := range tags {
+		ref, err := name.NewTag(repo + ":" + tag)
+		require.NoError(t, err)
+		require.NoError(t, remote.Write(ref, img))
+	}
 	digest, err := img.Digest()
 	require.NoError(t, err)
 	return digest.String()
@@ -602,4 +636,104 @@ func TestCheck(t *testing.T) {
 		_, err := Check(context.Background(), []string{filepath.Join(t.TempDir(), "Dockerfile")}, false)
 		assert.Error(t, err)
 	})
+}
+
+func TestRun_resolveLatest(t *testing.T) {
+	host := startRegistry(t)
+	repo := host + "/lib/app"
+	digest := pushTag(t, repo, "latest", "8", "8.0.1")
+
+	dir := t.TempDir()
+	df := filepath.Join(dir, "Dockerfile")
+	require.NoError(t, os.WriteFile(df, []byte("FROM "+repo+":latest\n"), 0o644))
+	cf := filepath.Join(dir, "compose.yml")
+	require.NoError(t, os.WriteFile(cf, []byte("services:\n  app:\n    image: "+repo+"\n"), 0o644))
+
+	results, err := Run(context.Background(), []string{df, cf}, false)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	for _, r := range results {
+		assert.Equal(t, StatusUpdated, r.Status)
+		assert.Equal(t, repo+":8.0.1", r.NewTagRef)
+	}
+
+	gotDf, err := os.ReadFile(df)
+	require.NoError(t, err)
+	assert.Equal(t, "FROM "+repo+":8.0.1@"+digest+"\n", string(gotDf))
+
+	gotCf, err := os.ReadFile(cf)
+	require.NoError(t, err)
+	assert.Equal(t, "services:\n  app:\n    image: "+repo+":8.0.1@"+digest+"\n", string(gotCf))
+}
+
+func TestRun_resolveLatest_migratesPinnedWithUpdate(t *testing.T) {
+	host := startRegistry(t)
+	repo := host + "/lib/app"
+	digest := pushTag(t, repo, "latest", "8.0.1")
+
+	path := filepath.Join(t.TempDir(), "Dockerfile")
+	require.NoError(t, os.WriteFile(path, []byte("FROM "+repo+":latest@sha256:old\n"), 0o644))
+
+	results, err := Run(context.Background(), []string{path}, true)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, StatusUpdated, results[0].Status)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "FROM "+repo+":8.0.1@"+digest+"\n", string(got))
+}
+
+func TestRun_resolveLatest_pinnedUntouchedWithoutUpdate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Dockerfile")
+	content := "FROM redis:latest@sha256:old\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	results, err := Run(context.Background(), []string{path}, false)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, StatusCurrent, results[0].Status)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, content, string(got))
+}
+
+func TestCheck_heldByLatest(t *testing.T) {
+	host := startRegistry(t)
+	repo := host + "/lib/app"
+	digest := pushTag(t, repo, "1.1", "latest")
+	pushTag(t, repo, "2.0")
+
+	path := filepath.Join(t.TempDir(), "Dockerfile")
+	content := "FROM " + repo + ":1.1@" + digest + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	results, err := Check(context.Background(), []string{path}, true)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, StatusHeld, results[0].Status)
+	assert.Equal(t, repo+":2.0", results[0].HeldRef)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, content, string(got))
+}
+
+func TestRun_resolveLatest_fallsBackToPlainPin(t *testing.T) {
+	host := startRegistry(t)
+	repo := host + "/lib/app"
+	digest := pushTag(t, repo, "latest", "bookworm")
+
+	path := filepath.Join(t.TempDir(), "Dockerfile")
+	require.NoError(t, os.WriteFile(path, []byte("FROM "+repo+":latest\n"), 0o644))
+
+	results, err := Run(context.Background(), []string{path}, false)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, StatusPinned, results[0].Status)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "FROM "+repo+":latest@"+digest+"\n", string(got))
 }
