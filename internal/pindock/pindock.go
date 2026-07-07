@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -44,6 +45,7 @@ const (
 	StatusCurrent               // already up to date
 	StatusSkipped               // variable ref, scratch, etc.
 	StatusError                 // resolution failed
+	StatusHeld                  // newer tag held back beyond latest
 )
 
 // Result is the outcome of processing one image reference.
@@ -52,6 +54,7 @@ type Result struct {
 	Ref       ImageRef
 	NewDigest string
 	NewTagRef string // non-empty if the tag was updated to a newer version
+	HeldRef   string // ref of a newer tag beyond latest, when no update was applied
 	Status    Status
 	Err       error
 }
@@ -70,7 +73,7 @@ func Run(ctx context.Context, files []string, update bool) ([]Result, error) {
 	return process(ctx, files, true, update)
 }
 
-// Check reports unpinned images. If update is true, also reports outdated.
+// Check reports what Run would change, without modifying files.
 func Check(ctx context.Context, files []string, update bool) ([]Result, error) {
 	return process(ctx, files, false, update)
 }
@@ -87,6 +90,7 @@ type resolveData struct {
 	digests    map[string]string
 	errs       map[string]error
 	tagUpdates map[string]string
+	tagHeld    map[string]string
 	tagErrors  map[string]error
 }
 
@@ -96,9 +100,15 @@ func process(ctx context.Context, files []string, fix, update bool) ([]Result, e
 		return nil, err
 	}
 
+	lookupRefs := tagLookupRefs(parsed, update)
+
 	var rd resolveData
+	rd.tagUpdates, rd.tagErrors = registry.ResolveLatestTags(ctx, lookupRefs)
 	if update {
-		rd.tagUpdates, rd.tagErrors = registry.FindLatestTags(ctx, updatableTagRefs(parsed))
+		updates, held, errs := registry.FindLatestTags(ctx, lookupRefs)
+		maps.Copy(rd.tagUpdates, updates)
+		maps.Copy(rd.tagErrors, errs)
+		rd.tagHeld = held
 	}
 
 	toResolve := collectResolvable(parsed, update, rd.tagUpdates)
@@ -121,12 +131,12 @@ func process(ctx context.Context, files []string, fix, update bool) ([]Result, e
 	return results, nil
 }
 
-// updatableTagRefs collects tag references eligible for a latest-tag lookup.
-func updatableTagRefs(parsed []fileData) []string {
+// tagLookupRefs collects tag references eligible for registry tag lookups.
+func tagLookupRefs(parsed []fileData, includePinned bool) []string {
 	var refs []string
 	for _, f := range parsed {
 		for _, ref := range f.refs {
-			if shouldSkip(ref) {
+			if shouldSkip(ref) || (!includePinned && ref.Digest != "") {
 				continue
 			}
 			refs = append(refs, ref.TagRef)
@@ -171,7 +181,7 @@ func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Re
 
 		// Pinned and not updating: no resolution needed.
 		if !update && ref.Digest != "" {
-			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusCurrent})
+			results = append(results, currentResult(fp, rd, ref))
 			continue
 		}
 
@@ -203,7 +213,7 @@ func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Re
 
 		tagChanged := newTagRef != "" && newTagRef != ref.TagRef
 		if !tagChanged && ref.Digest == digest {
-			results = append(results, Result{File: fp.path, Ref: ref, NewDigest: digest, Status: StatusCurrent})
+			results = append(results, currentResult(fp, rd, ref))
 			continue
 		}
 
@@ -228,6 +238,16 @@ func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Re
 	}
 
 	return results, repls
+}
+
+// currentResult reports an up-to-date ref, noting updates held back by latest.
+func currentResult(fp *fileData, rd *resolveData, ref ImageRef) Result {
+	result := Result{File: fp.path, Ref: ref, Status: StatusCurrent}
+	if heldRef, ok := rd.tagHeld[ref.TagRef]; ok {
+		result.Status = StatusHeld
+		result.HeldRef = heldRef
+	}
+	return result
 }
 
 func parseAllFiles(files []string) ([]fileData, error) {

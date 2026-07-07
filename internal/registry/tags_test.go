@@ -35,32 +35,10 @@ func TestParseVersionedTag(t *testing.T) {
 			parsed, ok := parseVersionedTag(tt.tag)
 			assert.Equal(t, tt.wantOK, ok)
 			if ok {
-				assert.Equal(t, tt.wantPfx, parsed.Prefix)
-				assert.Equal(t, tt.wantVer, parsed.Version)
-				assert.Equal(t, tt.wantSfx, parsed.Suffix)
+				assert.Equal(t, tt.wantPfx, parsed.prefix)
+				assert.Equal(t, tt.wantVer, parsed.version)
+				assert.Equal(t, tt.wantSfx, parsed.suffix)
 			}
-		})
-	}
-}
-
-func TestCompareVersions(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b []int
-		want int
-	}{
-		{"equal single", []int{7}, []int{7}, 0},
-		{"less single", []int{7}, []int{8}, -1},
-		{"greater single", []int{8}, []int{7}, 1},
-		{"equal multi", []int{1, 26}, []int{1, 26}, 0},
-		{"less minor", []int{1, 25}, []int{1, 26}, -1},
-		{"greater major", []int{2, 0}, []int{1, 26}, 1},
-		{"different lengths padded", []int{1}, []int{1, 0}, 0},
-		{"different lengths less", []int{1}, []int{1, 1}, -1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, compareVersions(tt.a, tt.b))
 		})
 	}
 }
@@ -104,13 +82,63 @@ func TestFindLatestTag(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := findLatestTag(tt.current, allTags)
+			got, ok := findLatestTag(tt.current, allTags, nil)
 			assert.Equal(t, tt.wantOK, ok)
 			if ok {
 				assert.Equal(t, tt.want, got)
 			}
 		})
 	}
+}
+
+func TestParseVersionedTag_prerelease(t *testing.T) {
+	for tag, want := range map[string]bool{
+		"1.2.3-rc.1":    true,
+		"1.2.3-beta4":   true,
+		"0.0.1-alpha.3": true,
+		"1.2.3":         false,
+		"7-alpine":      false,
+	} {
+		parsed, ok := parseVersionedTag(tag)
+		assert.True(t, ok, tag)
+		assert.Equal(t, want, parsed.prerelease, tag)
+	}
+}
+
+func TestExceedsLimit(t *testing.T) {
+	assert.False(t, exceedsLimit([]int{8, 0, 1}, nil))
+	assert.False(t, exceedsLimit([]int{8, 0, 1}, []int{8, 0, 1}))
+	assert.False(t, exceedsLimit([]int{8, 0, 1}, []int{8, 0}))
+	assert.False(t, exceedsLimit([]int{8}, []int{8, 0, 1}))
+	assert.True(t, exceedsLimit([]int{8, 1, 0}, []int{8, 0}))
+	assert.True(t, exceedsLimit([]int{9}, []int{8, 0, 1}))
+}
+
+func TestFindLatestTag_limit(t *testing.T) {
+	allTags := []string{"7.4-alpine", "7.5-alpine", "8.0-alpine", "0.0.1-alpha.3", "0.0.2-alpha.1"}
+
+	t.Run("blocks candidates past limit", func(t *testing.T) {
+		got, ok := findLatestTag("7.4-alpine", allTags, []int{7, 9})
+		assert.True(t, ok)
+		assert.Equal(t, "7.5-alpine", got)
+	})
+
+	t.Run("allows candidates at limit", func(t *testing.T) {
+		got, ok := findLatestTag("7.4-alpine", allTags, []int{8, 0})
+		assert.True(t, ok)
+		assert.Equal(t, "8.0-alpine", got)
+	})
+
+	t.Run("no candidate within limit", func(t *testing.T) {
+		_, ok := findLatestTag("7.5-alpine", allTags, []int{7, 5})
+		assert.False(t, ok)
+	})
+
+	t.Run("prerelease stream ignores limit", func(t *testing.T) {
+		got, ok := findLatestTag("0.0.1-alpha.3", allTags, []int{0, 0, 1})
+		assert.True(t, ok)
+		assert.Equal(t, "0.0.2-alpha.1", got)
+	})
 }
 
 func TestFindLatestTags(t *testing.T) {
@@ -121,28 +149,54 @@ func TestFindLatestTags(t *testing.T) {
 
 	t.Run("upgrades to newest", func(t *testing.T) {
 		ref := repo + ":1.0"
-		updates, failed := FindLatestTags(t.Context(), []string{ref})
+		updates, held, failed := FindLatestTags(t.Context(), []string{ref})
 		assert.Empty(t, failed)
+		assert.Empty(t, held)
 		assert.Equal(t, repo+":2.0", updates[ref])
 	})
 
 	t.Run("already newest", func(t *testing.T) {
-		updates, failed := FindLatestTags(t.Context(), []string{repo + ":2.0"})
+		updates, held, failed := FindLatestTags(t.Context(), []string{repo + ":2.0"})
 		assert.Empty(t, failed)
+		assert.Empty(t, held)
 		assert.Empty(t, updates)
 	})
 
 	t.Run("latest tag ignored", func(t *testing.T) {
-		updates, failed := FindLatestTags(t.Context(), []string{repo + ":latest"})
+		updates, held, failed := FindLatestTags(t.Context(), []string{repo + ":latest"})
+		assert.Empty(t, failed)
+		assert.Empty(t, held)
+		assert.Empty(t, updates)
+	})
+}
+
+func TestFindLatestTags_cappedByLatest(t *testing.T) {
+	repo := startRegistry(t) + "/lib/app"
+	pushTag(t, repo, "1.1", "latest") // latest marks 1.1 as stable
+	pushTag(t, repo, "1.0")
+	pushTag(t, repo, "2.0") // unmarked prerelease
+
+	t.Run("stops at latest version", func(t *testing.T) {
+		ref := repo + ":1.0"
+		updates, held, failed := FindLatestTags(t.Context(), []string{ref})
+		assert.Empty(t, failed)
+		assert.Empty(t, held)
+		assert.Equal(t, repo+":1.1", updates[ref])
+	})
+
+	t.Run("no update past latest is reported held", func(t *testing.T) {
+		updates, held, failed := FindLatestTags(t.Context(), []string{repo + ":1.1"})
 		assert.Empty(t, failed)
 		assert.Empty(t, updates)
+		assert.Equal(t, repo+":2.0", held[repo+":1.1"])
 	})
 }
 
 func TestFindLatestTags_repoError(t *testing.T) {
 	host := startRegistry(t)
 	ref := host + "/lib/missing:1.0"
-	updates, failed := FindLatestTags(t.Context(), []string{ref})
+	updates, held, failed := FindLatestTags(t.Context(), []string{ref})
 	assert.Empty(t, updates)
+	assert.Empty(t, held)
 	assert.Contains(t, failed, ref)
 }

@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
-	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
 var (
@@ -19,9 +17,10 @@ var (
 )
 
 type parsedTag struct {
-	Prefix  string
-	Version []int
-	Suffix  string
+	prefix     string
+	version    []int
+	suffix     string
+	prerelease bool
 }
 
 // parseVersionedTag extracts prefix, version numbers, and suffix from tags
@@ -33,9 +32,11 @@ func parseVersionedTag(tag string) (parsedTag, bool) {
 	}
 	parts := strings.Split(m[2], ".")
 	suffix := m[3]
+	prerelease := false
 	if pr := prereleaseRe.FindStringSubmatch(suffix); pr != nil {
 		suffix = pr[1]
 		parts = append(parts, pr[2])
+		prerelease = true
 	}
 	version := make([]int, len(parts))
 	for i, p := range parts {
@@ -45,143 +46,104 @@ func parseVersionedTag(tag string) (parsedTag, bool) {
 		}
 		version[i] = n
 	}
-	return parsedTag{Prefix: m[1], Version: version, Suffix: suffix}, true
+	return parsedTag{prefix: m[1], version: version, suffix: suffix, prerelease: prerelease}, true
 }
 
-// compareVersions returns -1, 0, or 1.
-func compareVersions(a, b []int) int {
-	for i := range max(len(a), len(b)) {
-		va, vb := 0, 0
-		if i < len(a) {
-			va = a[i]
-		}
-		if i < len(b) {
-			vb = b[i]
-		}
-		if va < vb {
-			return -1
-		}
-		if va > vb {
-			return 1
-		}
-	}
-	return 0
-}
-
-// findLatestTag finds the latest tag matching the same prefix, suffix, and version depth.
-func findLatestTag(currentTag string, allTags []string) (string, bool) {
+// findLatestTag finds the latest tag matching the same prefix, suffix, and
+// version depth, staying at or below limit. Prerelease streams are uncapped.
+func findLatestTag(currentTag string, allTags []string, limit []int) (string, bool) {
 	current, ok := parseVersionedTag(currentTag)
 	if !ok {
 		return "", false
 	}
-	depth := len(current.Version)
+	if current.prerelease {
+		limit = nil
+	}
+	depth := len(current.version)
 	var best parsedTag
 	var bestRaw string
 	for _, t := range allTags {
 		parsed, ok := parseVersionedTag(t)
-		if !ok || parsed.Prefix != current.Prefix || parsed.Suffix != current.Suffix || len(parsed.Version) != depth {
+		if !ok || parsed.prefix != current.prefix || parsed.suffix != current.suffix || len(parsed.version) != depth {
 			continue
 		}
-		if bestRaw == "" || compareVersions(parsed.Version, best.Version) > 0 {
+		if exceedsLimit(parsed.version, limit) {
+			continue
+		}
+		if bestRaw == "" || slices.Compare(parsed.version, best.version) > 0 {
 			best = parsed
 			bestRaw = t
 		}
 	}
-	if bestRaw == "" || compareVersions(best.Version, current.Version) <= 0 {
+	if bestRaw == "" || slices.Compare(best.version, current.version) <= 0 {
 		return "", false
 	}
 	return bestRaw, true
 }
 
-// FindLatestTags queries registries for newer versions of each tag reference.
-// Returns old→new tag updates and per-ref errors for failed repo listings.
-func FindLatestTags(ctx context.Context, tagRefs []string) (updates map[string]string, failed map[string]error) {
-	updates = make(map[string]string)
-	failed = make(map[string]error)
-
-	type refInfo struct {
-		tagRef  string
-		tag     string
-		repoStr string
+// exceedsLimit reports whether version is newer than limit at limit's depth.
+func exceedsLimit(version, limit []int) bool {
+	if limit == nil {
+		return false
 	}
-	var infos []refInfo
-	repos := make(map[string]name.Repository)
-	seen := make(map[string]bool)
-
-	for _, tagRef := range tagRefs {
-		if seen[tagRef] {
-			continue
-		}
-		seen[tagRef] = true
-		parsed, err := name.ParseReference(tagRef)
-		if err != nil {
-			continue
-		}
-		tagged, ok := parsed.(name.Tag)
-		if !ok {
-			continue
-		}
-		tag := tagged.TagStr()
-		if tag == "latest" {
-			continue
-		}
-		repo := tagged.Context()
-		repoStr := repo.String()
-		infos = append(infos, refInfo{tagRef: tagRef, tag: tag, repoStr: repoStr})
-		repos[repoStr] = repo
-	}
-
-	tagCache, repoErrors := listRepoTags(ctx, repos)
-
-	for _, info := range infos {
-		if err, ok := repoErrors[info.repoStr]; ok {
-			failed[info.tagRef] = fmt.Errorf("list tags for %s: %w", info.repoStr, err)
-			continue
-		}
-
-		newTag, found := findLatestTag(info.tag, tagCache[info.repoStr])
-		if !found {
-			continue
-		}
-
-		colonIdx := strings.LastIndex(info.tagRef, ":")
-		if colonIdx < 0 {
-			continue
-		}
-		updates[info.tagRef] = info.tagRef[:colonIdx+1] + newTag
-	}
-
-	return updates, failed
+	d := min(len(version), len(limit))
+	return slices.Compare(version[:d], limit[:d]) > 0
 }
 
-// listRepoTags lists all tags for each repository concurrently.
-func listRepoTags(ctx context.Context, repos map[string]name.Repository) (tags map[string][]string, errs map[string]error) {
-	tags = make(map[string][]string, len(repos))
-	errs = make(map[string]error)
+// FindLatestTags queries registries for newer versions of each tag reference,
+// capped at the version the repository's latest tag points to.
+// Returns updates, updates held back by the cap, and per-ref listing errors.
+func FindLatestTags(ctx context.Context, tagRefs []string) (updates, held map[string]string, failed map[string]error) {
+	refs, repos := taggedRefs(tagRefs, false)
 
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, maxConcurrency)
+	lookups, repoErrors := runConcurrently(repos, func(repo name.Repository) (repoLookup, error) {
+		return lookupRepo(ctx, repo)
+	})
 
-	for repoStr, repo := range repos {
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
+	updates = make(map[string]string)
+	held = make(map[string]string)
+	failed = make(map[string]error)
+	for _, ref := range refs {
+		if err, ok := repoErrors[ref.repoStr]; ok {
+			failed[ref.tagRef] = fmt.Errorf("list tags for %s: %w", ref.repoStr, err)
+			continue
+		}
 
-			list, err := remote.List(repo,
-				remote.WithAuthFromKeychain(authn.DefaultKeychain),
-				remote.WithContext(ctx),
-			)
-
-			mu.Lock()
-			defer mu.Unlock()
-			if err == nil {
-				tags[repoStr] = list
-			} else {
-				errs[repoStr] = simplifyError(err)
-			}
-		})
+		lookup := lookups[ref.repoStr]
+		newTag, found := findLatestTag(ref.tag, lookup.tags, lookup.limit)
+		if found {
+			updates[ref.tagRef] = replaceTag(ref.tagRef, newTag)
+			continue
+		}
+		if lookup.limit == nil {
+			continue
+		}
+		if heldTag, ok := findLatestTag(ref.tag, lookup.tags, nil); ok {
+			held[ref.tagRef] = replaceTag(ref.tagRef, heldTag)
+		}
 	}
-	wg.Wait()
-	return tags, errs
+
+	return updates, held, failed
+}
+
+// repoLookup holds a repository's tags and the version its latest tag names.
+type repoLookup struct {
+	tags  []string
+	limit []int // version of the latest alias; nil leaves updates uncapped
+}
+
+// lookupRepo lists a repository's tags and resolves its latest alias version.
+func lookupRepo(ctx context.Context, repo name.Repository) (repoLookup, error) {
+	tags, err := listTags(ctx, repo)
+	if err != nil {
+		return repoLookup{}, err
+	}
+
+	lookup := repoLookup{tags: tags}
+	if alias := latestAliasFromTags(ctx, repo, tags); alias != "" {
+		if parsed, ok := parseVersionedTag(alias); ok {
+			lookup.limit = parsed.version
+		}
+	}
+	return lookup, nil
 }

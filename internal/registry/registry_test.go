@@ -25,14 +25,16 @@ func startRegistry(t *testing.T) string {
 	return strings.TrimPrefix(srv.URL, "http://")
 }
 
-// pushTag writes a random image to repo:tag and returns its digest.
-func pushTag(t *testing.T, repo, tag string) string {
+// pushTag writes one random image to repo under each tag and returns its digest.
+func pushTag(t *testing.T, repo string, tags ...string) string {
 	t.Helper()
 	img, err := random.Image(256, 1)
 	require.NoError(t, err)
-	ref, err := name.NewTag(repo + ":" + tag)
-	require.NoError(t, err)
-	require.NoError(t, remote.Write(ref, img))
+	for _, tag := range tags {
+		ref, err := name.NewTag(repo + ":" + tag)
+		require.NoError(t, err)
+		require.NoError(t, remote.Write(ref, img))
+	}
 	digest, err := img.Digest()
 	require.NoError(t, err)
 	return digest.String()
