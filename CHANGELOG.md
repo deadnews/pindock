@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.1](https://github.com/deadnews/pindock/compare/v1.1.0...v1.1.1) - 2026-07-13
+
+### Bug fixes
+
+- _(registry)_ graduate prerelease tags to stable releases - ([7b3750e](https://github.com/deadnews/pindock/commit/7b3750e48dea07bd6503b766bc245d54599b7bbf))
+
 ## [1.1.0](https://github.com/deadnews/pindock/compare/v1.0.1...v1.1.0) - 2026-07-07
 
 ### Features
