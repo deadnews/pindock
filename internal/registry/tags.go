@@ -49,36 +49,46 @@ func parseVersionedTag(tag string) (parsedTag, bool) {
 	return parsedTag{prefix: m[1], version: version, suffix: suffix, prerelease: prerelease}, true
 }
 
-// findLatestTag finds the latest tag matching the same prefix, suffix, and
-// version depth, staying at or below limit. Prerelease streams are uncapped.
+// findLatestTag finds the latest tag with the same prefix, suffix, and depth,
+// staying at or below limit. A prerelease graduates to the newest stable tag
+// at or above its base version, else follows its own stream uncapped.
 func findLatestTag(currentTag string, allTags []string, limit []int) (string, bool) {
 	current, ok := parseVersionedTag(currentTag)
 	if !ok {
 		return "", false
 	}
 	if current.prerelease {
+		base := current.version[:len(current.version)-1]
+		stable := parsedTag{prefix: current.prefix, version: base}
+		if tag, version := newestMatch(allTags, stable, limit); tag != "" && slices.Compare(version, base) >= 0 {
+			return tag, true
+		}
 		limit = nil
 	}
-	depth := len(current.version)
-	var best parsedTag
-	var bestRaw string
+	tag, version := newestMatch(allTags, current, limit)
+	if tag == "" || slices.Compare(version, current.version) <= 0 {
+		return "", false
+	}
+	return tag, true
+}
+
+// newestMatch returns the newest tag matching want's
+// prefix, suffix, and version depth, staying at or below limit.
+func newestMatch(allTags []string, want parsedTag, limit []int) (tag string, version []int) {
 	for _, t := range allTags {
 		parsed, ok := parseVersionedTag(t)
-		if !ok || parsed.prefix != current.prefix || parsed.suffix != current.suffix || len(parsed.version) != depth {
+		if !ok || parsed.prefix != want.prefix || parsed.suffix != want.suffix || len(parsed.version) != len(want.version) {
 			continue
 		}
 		if exceedsLimit(parsed.version, limit) {
 			continue
 		}
-		if bestRaw == "" || slices.Compare(parsed.version, best.version) > 0 {
-			best = parsed
-			bestRaw = t
+		if tag == "" || slices.Compare(parsed.version, version) > 0 {
+			tag = t
+			version = parsed.version
 		}
 	}
-	if bestRaw == "" || slices.Compare(best.version, current.version) <= 0 {
-		return "", false
-	}
-	return bestRaw, true
+	return tag, version
 }
 
 // exceedsLimit reports whether version is newer than limit at limit's depth.

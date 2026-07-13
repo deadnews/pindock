@@ -49,8 +49,9 @@ check flags:
 - When no files are given, `pindock` auto-discovers files recursively.
 - `latest` and untagged images are pinned to the version tag pointing at the
   same digest (`2.0.1` preferred over `2.0` and `2`).
-- `--update` never moves a version tag past the version `latest` points to;
-  prerelease tags (`-rc`, `-alpha`, `-beta`) are not capped.
+- `--update` never moves a version tag past the version `latest` points to.
+- Prerelease tags (`-rc`, `-alpha`, `-beta`) update to the newest stable
+  release once one is available; until then they follow their prerelease stream.
 
 ### Supported files
 

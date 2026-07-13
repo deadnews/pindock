@@ -52,6 +52,7 @@ func TestFindLatestTag(t *testing.T) {
 		"alpine-3.20", "alpine-3.21",
 		"v1.25.0", "v1.26.0", "v2.0.0",
 		"0.0.1-alpha.3", "0.0.1-alpha.4", "0.0.2-alpha.1", "0.0.2",
+		"0.0.3-alpha.1", "0.0.3-alpha.2",
 		"1.2.3-debian-11", "1.2.3-debian-12",
 		"latest", "alpine", "bookworm",
 	}
@@ -75,9 +76,10 @@ func TestFindLatestTag(t *testing.T) {
 		{"prefix alpine already latest", "alpine-1.23.5", "", false},
 		{"prefix v semver", "v1.26.0", "v2.0.0", true},
 		{"no matching prefix", "rel-1.23.3", "", false},
-		{"prerelease newest in stream", "0.0.1-alpha.3", "0.0.2-alpha.1", true},
+		{"prerelease graduates to newer stable", "0.0.1-alpha.3", "0.0.2", true},
+		{"prerelease graduates to same base stable", "0.0.2-alpha.1", "0.0.2", true},
+		{"prerelease stays in stream without stable", "0.0.3-alpha.1", "0.0.3-alpha.2", true},
 		{"stable ignores prerelease", "0.0.2", "", false},
-		{"prerelease stays in stream", "0.0.2-alpha.1", "", false},
 		{"distro suffix fixed", "1.2.3-debian-11", "", false},
 	}
 	for _, tt := range tests {
@@ -115,7 +117,7 @@ func TestExceedsLimit(t *testing.T) {
 }
 
 func TestFindLatestTag_limit(t *testing.T) {
-	allTags := []string{"7.4-alpine", "7.5-alpine", "8.0-alpine", "0.0.1-alpha.3", "0.0.2-alpha.1"}
+	allTags := []string{"7.4-alpine", "7.5-alpine", "8.0-alpine", "0.0.1-alpha.3", "0.0.2-alpha.1", "0.0.2"}
 
 	t.Run("blocks candidates past limit", func(t *testing.T) {
 		got, ok := findLatestTag("7.4-alpine", allTags, []int{7, 9})
@@ -138,6 +140,12 @@ func TestFindLatestTag_limit(t *testing.T) {
 		got, ok := findLatestTag("0.0.1-alpha.3", allTags, []int{0, 0, 1})
 		assert.True(t, ok)
 		assert.Equal(t, "0.0.2-alpha.1", got)
+	})
+
+	t.Run("prerelease graduates within limit", func(t *testing.T) {
+		got, ok := findLatestTag("0.0.1-alpha.3", allTags, []int{0, 0, 2})
+		assert.True(t, ok)
+		assert.Equal(t, "0.0.2", got)
 	})
 }
 
