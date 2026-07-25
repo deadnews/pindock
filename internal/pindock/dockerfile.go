@@ -2,7 +2,7 @@ package pindock
 
 import "strings"
 
-// logicalLine is a Dockerfile instruction with continuations joined and byte offsets into the original.
+// logicalLine is a Dockerfile instruction with continuations joined.
 type logicalLine struct {
 	text  string
 	start int // byte offset of first source line
@@ -35,7 +35,7 @@ func ParseDockerfile(content string) []ImageRef {
 	return refs
 }
 
-// joinLogicalLines merges backslash-continued lines, tracking byte ranges in the original.
+// joinLogicalLines merges backslash-continued lines, tracking byte ranges.
 func joinLogicalLines(content string) []logicalLine {
 	var result []logicalLine
 	var buf strings.Builder

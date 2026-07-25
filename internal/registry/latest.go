@@ -2,7 +2,6 @@ package registry
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -11,39 +10,6 @@ import (
 
 // maxLatestCandidates bounds digest checks when latest matches an old or no tag.
 const maxLatestCandidates = 20
-
-// ResolveLatestTags finds the version tag sharing each latest or untagged
-// reference's digest. Returns old→new updates and per-ref listing errors.
-func ResolveLatestTags(ctx context.Context, tagRefs []string) (updates map[string]string, failed map[string]error) {
-	refs, repos := taggedRefs(tagRefs, true)
-
-	aliases, errs := runConcurrently(repos, func(repo name.Repository) (string, error) {
-		return resolveLatestAlias(ctx, repo)
-	})
-
-	updates = make(map[string]string)
-	failed = make(map[string]error)
-	for _, ref := range refs {
-		if err, ok := errs[ref.repoStr]; ok {
-			failed[ref.tagRef] = fmt.Errorf("list tags for %s: %w", ref.repoStr, err)
-			continue
-		}
-		if alias := aliases[ref.repoStr]; alias != "" {
-			updates[ref.tagRef] = replaceTag(ref.tagRef, alias)
-		}
-	}
-
-	return updates, failed
-}
-
-// resolveLatestAlias returns the newest version tag sharing latest's digest, or "".
-func resolveLatestAlias(ctx context.Context, repo name.Repository) (string, error) {
-	tags, err := listTags(ctx, repo)
-	if err != nil {
-		return "", err
-	}
-	return latestAliasFromTags(ctx, repo, tags), nil
-}
 
 // latestAliasFromTags walks candidate tags for one whose digest matches latest.
 func latestAliasFromTags(ctx context.Context, repo name.Repository, tags []string) string {

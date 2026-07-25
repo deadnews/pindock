@@ -100,11 +100,47 @@ func exceedsLimit(version, limit []int) bool {
 	return slices.Compare(version[:d], limit[:d]) > 0
 }
 
-// FindLatestTags queries registries for newer versions of each tag reference,
-// capped at the version the repository's latest tag points to.
-// Returns updates, updates held back by the cap, and per-ref listing errors.
-func FindLatestTags(ctx context.Context, tagRefs []string) (updates, held map[string]string, failed map[string]error) {
-	refs, repos := taggedRefs(tagRefs, false)
+// taggedRef is a tag reference resolved to its repository and bare tag.
+type taggedRef struct {
+	tagRef  string
+	tag     string
+	repoStr string
+}
+
+// taggedRefs parses unique tag references, keeping versioned ones only if versioned.
+func taggedRefs(tagRefs []string, versioned bool) (refs []taggedRef, repos map[string]name.Repository) {
+	repos = make(map[string]name.Repository)
+	seen := make(map[string]bool)
+
+	for _, tagRef := range tagRefs {
+		if seen[tagRef] {
+			continue
+		}
+		seen[tagRef] = true
+		parsed, err := name.ParseReference(tagRef)
+		if err != nil {
+			continue
+		}
+		tagged, ok := parsed.(name.Tag)
+		if !ok {
+			continue
+		}
+		tag := tagged.TagStr()
+		if tag != "latest" && !versioned {
+			continue
+		}
+		repoStr := tagged.Context().String()
+		refs = append(refs, taggedRef{tagRef: tagRef, tag: tag, repoStr: repoStr})
+		repos[repoStr] = tagged.Context()
+	}
+	return refs, repos
+}
+
+// FindTagUpdates resolves latest and untagged references to the version tag
+// sharing their digest. When versioned is true, version tags also move to the
+// newest release, capped at the version latest points to; blocked moves are held.
+func FindTagUpdates(ctx context.Context, tagRefs []string, versioned bool) (updates, held map[string]string, failed map[string]error) {
+	refs, repos := taggedRefs(tagRefs, versioned)
 
 	lookups, repoErrors := runConcurrently(repos, func(repo name.Repository) (repoLookup, error) {
 		return lookupRepo(ctx, repo)
@@ -118,10 +154,15 @@ func FindLatestTags(ctx context.Context, tagRefs []string) (updates, held map[st
 			failed[ref.tagRef] = fmt.Errorf("list tags for %s: %w", ref.repoStr, err)
 			continue
 		}
-
 		lookup := lookups[ref.repoStr]
-		newTag, found := findLatestTag(ref.tag, lookup.tags, lookup.limit)
-		if found {
+
+		if ref.tag == "latest" {
+			if lookup.alias != "" {
+				updates[ref.tagRef] = replaceTag(ref.tagRef, lookup.alias)
+			}
+			continue
+		}
+		if newTag, ok := findLatestTag(ref.tag, lookup.tags, lookup.limit); ok {
 			updates[ref.tagRef] = replaceTag(ref.tagRef, newTag)
 			continue
 		}
@@ -136,24 +177,23 @@ func FindLatestTags(ctx context.Context, tagRefs []string) (updates, held map[st
 	return updates, held, failed
 }
 
-// repoLookup holds a repository's tags and the version its latest tag names.
+// repoLookup holds a repository's tags and the version tag latest points at.
 type repoLookup struct {
 	tags  []string
-	limit []int // version of the latest alias; nil leaves updates uncapped
+	alias string // version tag sharing latest's digest; empty if none
+	limit []int  // alias version; nil leaves updates uncapped
 }
 
-// lookupRepo lists a repository's tags and resolves its latest alias version.
+// lookupRepo lists a repository's tags and resolves its latest alias.
 func lookupRepo(ctx context.Context, repo name.Repository) (repoLookup, error) {
 	tags, err := listTags(ctx, repo)
 	if err != nil {
 		return repoLookup{}, err
 	}
 
-	lookup := repoLookup{tags: tags}
-	if alias := latestAliasFromTags(ctx, repo, tags); alias != "" {
-		if parsed, ok := parseVersionedTag(alias); ok {
-			lookup.limit = parsed.version
-		}
+	lookup := repoLookup{tags: tags, alias: latestAliasFromTags(ctx, repo, tags)}
+	if parsed, ok := parseVersionedTag(lookup.alias); ok {
+		lookup.limit = parsed.version
 	}
 	return lookup, nil
 }

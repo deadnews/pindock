@@ -186,7 +186,7 @@ func TestCollectResolvable(t *testing.T) {
 func TestClassifyRefs(t *testing.T) {
 	t.Run("skipped", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("scratch")}}
-		results, repls := classifyRefs(fp, &resolveData{}, false, false)
+		results, repls := classifyRefs(fp, &resolveData{}, options{})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusSkipped, results[0].Status)
 		assert.Empty(t, repls)
@@ -194,7 +194,7 @@ func TestClassifyRefs(t *testing.T) {
 
 	t.Run("pinned treated as current without update", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26@sha256:abc")}}
-		results, repls := classifyRefs(fp, &resolveData{}, false, false)
+		results, repls := classifyRefs(fp, &resolveData{}, options{})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusCurrent, results[0].Status)
 		assert.Empty(t, repls)
@@ -204,28 +204,28 @@ func TestClassifyRefs(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26@sha256:abc")}}
 		results, repls := classifyRefs(fp, &resolveData{
 			digests: map[string]string{"golang:1.26": "sha256:abc"},
-		}, false, true)
+		}, options{update: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusCurrent, results[0].Status)
 		assert.Empty(t, repls)
 	})
 
-	t.Run("unpinned in fix mode", func(t *testing.T) {
+	t.Run("unpinned with apply", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26")}}
 		results, repls := classifyRefs(fp, &resolveData{
 			digests: map[string]string{"golang:1.26": "sha256:abc"},
-		}, true, false)
+		}, options{apply: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusPinned, results[0].Status)
 		require.Len(t, repls, 1)
 		assert.Equal(t, "golang:1.26@sha256:abc", repls[0].newStr)
 	})
 
-	t.Run("unpinned in check mode", func(t *testing.T) {
+	t.Run("unpinned without apply", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26")}}
 		results, repls := classifyRefs(fp, &resolveData{
 			digests: map[string]string{"golang:1.26": "sha256:abc"},
-		}, false, false)
+		}, options{})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusPinned, results[0].Status)
 		assert.Empty(t, repls)
@@ -235,7 +235,7 @@ func TestClassifyRefs(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26@sha256:old")}}
 		results, repls := classifyRefs(fp, &resolveData{
 			digests: map[string]string{"golang:1.26": "sha256:new"},
-		}, true, true)
+		}, options{apply: true, update: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusUpdated, results[0].Status)
 		require.Len(t, repls, 1)
@@ -244,7 +244,7 @@ func TestClassifyRefs(t *testing.T) {
 
 	t.Run("outdated without update treated as current", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26@sha256:old")}}
-		results, repls := classifyRefs(fp, &resolveData{}, true, false)
+		results, repls := classifyRefs(fp, &resolveData{}, options{apply: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusCurrent, results[0].Status)
 		assert.Empty(t, repls)
@@ -254,7 +254,7 @@ func TestClassifyRefs(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("bad:ref")}}
 		results, _ := classifyRefs(fp, &resolveData{
 			errs: map[string]error{"bad:ref": errors.New("not found")},
-		}, false, false)
+		}, options{})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusError, results[0].Status)
 		assert.EqualError(t, results[0].Err, "not found")
@@ -265,20 +265,20 @@ func TestClassifyRefs(t *testing.T) {
 		results, _ := classifyRefs(fp, &resolveData{
 			digests: map[string]string{},
 			errs:    map[string]error{},
-		}, false, false)
+		}, options{})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusError, results[0].Status)
-		assert.Contains(t, results[0].Err.Error(), "failed to resolve")
+		assert.Contains(t, results[0].Err.Error(), "no digest for")
 	})
 }
 
 func TestClassifyRefs_tagUpdate(t *testing.T) {
-	t.Run("tag updated with fix", func(t *testing.T) {
+	t.Run("tag updated with apply", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("redis:7-alpine@sha256:old")}}
 		results, repls := classifyRefs(fp, &resolveData{
 			digests:    map[string]string{"redis:8-alpine": "sha256:new"},
 			tagUpdates: map[string]string{"redis:7-alpine": "redis:8-alpine"},
-		}, true, true)
+		}, options{apply: true, update: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusUpdated, results[0].Status)
 		assert.Equal(t, "redis:8-alpine", results[0].NewTagRef)
@@ -291,7 +291,7 @@ func TestClassifyRefs_tagUpdate(t *testing.T) {
 		results, repls := classifyRefs(fp, &resolveData{
 			digests:    map[string]string{"redis:8-alpine": "sha256:new"},
 			tagUpdates: map[string]string{"redis:7-alpine": "redis:8-alpine"},
-		}, true, true)
+		}, options{apply: true, update: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusUpdated, results[0].Status)
 		assert.Equal(t, "redis:8-alpine", results[0].NewTagRef)
@@ -304,7 +304,7 @@ func TestClassifyRefs_tagUpdate(t *testing.T) {
 		results, repls := classifyRefs(fp, &resolveData{
 			digests:    map[string]string{"redis:7-alpine": "sha256:new"},
 			tagUpdates: map[string]string{},
-		}, true, true)
+		}, options{apply: true, update: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusUpdated, results[0].Status)
 		assert.Empty(t, results[0].NewTagRef)
@@ -317,7 +317,7 @@ func TestClassifyRefs_tagUpdate(t *testing.T) {
 		results, repls := classifyRefs(fp, &resolveData{
 			digests:   map[string]string{"redis:7-alpine": "sha256:new"},
 			tagErrors: map[string]error{"redis:7-alpine": errors.New("auth failed")},
-		}, true, true)
+		}, options{apply: true, update: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusError, results[0].Status)
 		assert.Contains(t, results[0].Err.Error(), "auth failed")
@@ -329,7 +329,7 @@ func TestClassifyRefs_tagUpdate(t *testing.T) {
 		results, repls := classifyRefs(fp, &resolveData{
 			digests: map[string]string{"xray:26.3.27": "sha256:abc"},
 			tagHeld: map[string]string{"xray:26.3.27": "xray:26.6.27"},
-		}, true, true)
+		}, options{apply: true, update: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusHeld, results[0].Status)
 		assert.Equal(t, "xray:26.6.27", results[0].HeldRef)
@@ -341,7 +341,7 @@ func TestClassifyRefs_tagUpdate(t *testing.T) {
 		results, repls := classifyRefs(fp, &resolveData{
 			digests: map[string]string{"xray:26.3.27": "sha256:new"},
 			tagHeld: map[string]string{"xray:26.3.27": "xray:26.6.27"},
-		}, true, true)
+		}, options{apply: true, update: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusUpdated, results[0].Status)
 		assert.Empty(t, results[0].HeldRef)
@@ -353,7 +353,7 @@ func TestClassifyRefs_tagUpdate(t *testing.T) {
 		results, repls := classifyRefs(fp, &resolveData{
 			digests:   map[string]string{"redis:7-alpine": "sha256:abc"},
 			tagErrors: map[string]error{"redis:7-alpine": errors.New("auth failed")},
-		}, true, true)
+		}, options{apply: true, update: true})
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusPinned, results[0].Status)
 		require.Len(t, repls, 1)

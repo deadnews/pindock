@@ -59,43 +59,6 @@ func listTags(ctx context.Context, repo name.Repository) ([]string, error) {
 	return tags, nil
 }
 
-// taggedRef is a tag reference resolved to its repository and bare tag.
-type taggedRef struct {
-	tagRef  string
-	tag     string
-	repoStr string
-}
-
-// taggedRefs parses unique tag references, keeping latest/untagged ones when
-// wantLatest is true and versioned ones otherwise.
-func taggedRefs(tagRefs []string, wantLatest bool) (refs []taggedRef, repos map[string]name.Repository) {
-	repos = make(map[string]name.Repository)
-	seen := make(map[string]bool)
-
-	for _, tagRef := range tagRefs {
-		if seen[tagRef] {
-			continue
-		}
-		seen[tagRef] = true
-		parsed, err := name.ParseReference(tagRef)
-		if err != nil {
-			continue
-		}
-		tagged, ok := parsed.(name.Tag)
-		if !ok {
-			continue
-		}
-		tag := tagged.TagStr()
-		if (tag == "latest") != wantLatest {
-			continue
-		}
-		repoStr := tagged.Context().String()
-		refs = append(refs, taggedRef{tagRef: tagRef, tag: tag, repoStr: repoStr})
-		repos[repoStr] = tagged.Context()
-	}
-	return refs, repos
-}
-
 // ResolveAll resolves digests for unique tag references concurrently.
 func ResolveAll(ctx context.Context, tagRefs []string) (digests map[string]string, errs map[string]error) {
 	unique := make(map[string]string, len(tagRefs))

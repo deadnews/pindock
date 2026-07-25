@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -23,7 +22,6 @@ type ImageRef struct {
 
 // ParseImageRef splits "image:tag@sha256:..." into tag and digest.
 func ParseImageRef(s string) ImageRef {
-	s = strings.TrimSpace(s)
 	if tag, digest, ok := strings.Cut(s, "@"); ok && tag != "" {
 		return ImageRef{Original: s, TagRef: tag, Digest: digest}
 	}
@@ -70,12 +68,17 @@ func (r *Result) PinnedRef() string {
 
 // Run pins digests in-place. If update is true, also refreshes existing ones.
 func Run(ctx context.Context, files []string, update bool) ([]Result, error) {
-	return process(ctx, files, true, update)
+	return process(ctx, files, options{apply: true, update: update})
 }
 
 // Check reports what Run would change, without modifying files.
 func Check(ctx context.Context, files []string, update bool) ([]Result, error) {
-	return process(ctx, files, false, update)
+	return process(ctx, files, options{update: update})
+}
+
+type options struct {
+	apply  bool // write resolved refs back to the file
+	update bool // refresh pinned digests and move tags forward
 }
 
 type fileData struct {
@@ -94,33 +97,27 @@ type resolveData struct {
 	tagErrors  map[string]error
 }
 
-func process(ctx context.Context, files []string, fix, update bool) ([]Result, error) {
+func process(ctx context.Context, files []string, opts options) ([]Result, error) {
 	parsed, err := parseAllFiles(files)
 	if err != nil {
 		return nil, err
 	}
 
-	lookupRefs := tagLookupRefs(parsed, update)
+	lookupRefs := tagLookupRefs(parsed, opts.update)
 
 	var rd resolveData
-	rd.tagUpdates, rd.tagErrors = registry.ResolveLatestTags(ctx, lookupRefs)
-	if update {
-		updates, held, errs := registry.FindLatestTags(ctx, lookupRefs)
-		maps.Copy(rd.tagUpdates, updates)
-		maps.Copy(rd.tagErrors, errs)
-		rd.tagHeld = held
-	}
+	rd.tagUpdates, rd.tagHeld, rd.tagErrors = registry.FindTagUpdates(ctx, lookupRefs, opts.update)
 
-	toResolve := collectResolvable(parsed, update, rd.tagUpdates)
+	toResolve := collectResolvable(parsed, opts.update, rd.tagUpdates)
 	rd.digests, rd.errs = registry.ResolveAll(ctx, toResolve)
 
 	var results []Result
 	for i := range parsed {
 		fp := &parsed[i]
-		fileResults, repls := classifyRefs(fp, &rd, fix, update)
+		fileResults, repls := classifyRefs(fp, &rd, opts)
 		results = append(results, fileResults...)
 
-		if fix && len(repls) > 0 {
+		if opts.apply && len(repls) > 0 {
 			newContent := applyReplacements(fp.content, repls)
 			if err := os.WriteFile(fp.path, []byte(newContent), fp.mode); err != nil {
 				return nil, fmt.Errorf("write %s: %w", fp.path, err)
@@ -172,7 +169,7 @@ type replacement struct {
 	newStr string
 }
 
-func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Result, repls []replacement) {
+func classifyRefs(fp *fileData, rd *resolveData, opts options) (results []Result, repls []replacement) {
 	for _, ref := range fp.refs {
 		if shouldSkip(ref) {
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusSkipped})
@@ -180,7 +177,7 @@ func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Re
 		}
 
 		// Pinned and not updating: no resolution needed.
-		if !update && ref.Digest != "" {
+		if !opts.update && ref.Digest != "" {
 			results = append(results, currentResult(fp, rd, ref))
 			continue
 		}
@@ -205,7 +202,7 @@ func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Re
 		if !ok {
 			refErr := rd.errs[lookupTag]
 			if refErr == nil {
-				refErr = fmt.Errorf("failed to resolve %s", lookupTag)
+				refErr = fmt.Errorf("no digest for %s", lookupTag)
 			}
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusError, Err: refErr})
 			continue
@@ -226,7 +223,7 @@ func classifyRefs(fp *fileData, rd *resolveData, fix, update bool) (results []Re
 			result.NewTagRef = newTagRef
 		}
 
-		if fix {
+		if opts.apply {
 			repls = append(repls, replacement{
 				start:  ref.Start,
 				end:    ref.Start + len(ref.Original),

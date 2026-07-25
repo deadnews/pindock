@@ -45,7 +45,7 @@ func ClassifyFile(path string) (FileType, bool) {
 	return 0, false
 }
 
-// DiscoverFiles walks root recursively, skipping dot-directories, and returns matching files.
+// DiscoverFiles walks root recursively, skipping dot-directories.
 func DiscoverFiles(root string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
