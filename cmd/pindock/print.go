@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/deadnews/pindock/internal/pindock"
@@ -55,62 +54,58 @@ func dimDigest(ref string) string {
 	return ref
 }
 
-// printResults prints results grouped by file.
-func printResults(results []pindock.Result, fix, verbose bool) {
-	for start := 0; start < len(results); {
-		end := start + 1
-		for end < len(results) && results[end].File == results[start].File {
-			end++
-		}
-		group := results[start:end]
-		start = end
-
-		if !hasVisibleResults(group, verbose) {
+// printResults prints visible results grouped by file.
+func printResults(results []pindock.Result, applied, verbose bool) {
+	var file string
+	for i := range results {
+		r := &results[i]
+		if !visible(r, verbose) {
 			continue
 		}
-		fmt.Printf("%s\n", paint(colorBold, group[0].File))
-		for i := range group {
-			printResult(&group[i], fix, verbose)
+		if r.File != file {
+			if file != "" {
+				fmt.Println()
+			}
+			fmt.Printf("%s\n", paint(colorBold, r.File))
+			file = r.File
 		}
+		printResult(r, applied)
+	}
+	if file != "" {
 		fmt.Println()
 	}
 }
 
-func hasVisibleResults(results []pindock.Result, verbose bool) bool {
-	return slices.ContainsFunc(results, func(r pindock.Result) bool {
-		switch r.Status {
-		case pindock.StatusPinned, pindock.StatusUpdated, pindock.StatusError, pindock.StatusHeld:
-			return true
-		case pindock.StatusCurrent, pindock.StatusSkipped:
-			return verbose
-		}
-		return false
-	})
+// visible reports whether a result is shown at the current verbosity.
+func visible(r *pindock.Result, verbose bool) bool {
+	switch r.Status {
+	case pindock.StatusPinned, pindock.StatusUpdated, pindock.StatusError, pindock.StatusHeld:
+		return true
+	case pindock.StatusCurrent, pindock.StatusSkipped:
+		return verbose
+	}
+	return false
 }
 
-func printResult(r *pindock.Result, fix, verbose bool) {
+func printResult(r *pindock.Result, applied bool) {
 	arrow := paint(colorDim, "→")
 	switch r.Status {
 	case pindock.StatusPinned:
 		label := colorLabel(colorRed, "UNPINNED")
-		if fix {
+		if applied {
 			label = colorLabel(colorYellow, "PINNED")
 		}
 		fmt.Printf("  %s  %s\n          %s %s\n", label, r.Ref.Original, arrow, dimDigest(r.PinnedRef()))
 	case pindock.StatusUpdated:
 		label := colorLabel(colorRed, "OUTDATED")
-		if fix {
+		if applied {
 			label = colorLabel(colorYellow, "UPDATED")
 		}
 		fmt.Printf("  %s  %s\n          %s %s\n", label, dimDigest(r.Ref.Original), arrow, dimDigest(r.PinnedRef()))
 	case pindock.StatusCurrent:
-		if verbose {
-			fmt.Printf("  %s  %s\n", colorLabel(colorGreen, "OK"), dimDigest(r.Ref.Original))
-		}
+		fmt.Printf("  %s  %s\n", colorLabel(colorGreen, "OK"), dimDigest(r.Ref.Original))
 	case pindock.StatusSkipped:
-		if verbose {
-			fmt.Printf("  %s  %s\n", colorLabel(colorDim, "SKIP"), r.Ref.Original)
-		}
+		fmt.Printf("  %s  %s\n", colorLabel(colorDim, "SKIP"), r.Ref.Original)
 	case pindock.StatusHeld:
 		fmt.Printf("  %s  %s\n          %s %s  %s\n",
 			colorLabel(colorCyan, "HELD"), dimDigest(r.Ref.Original), arrow, r.HeldRef, paint(colorCyan, "Beyond latest"))

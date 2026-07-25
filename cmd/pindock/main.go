@@ -14,6 +14,11 @@ import (
 
 var version = "dev"
 
+var (
+	errCheckFailed = errors.New("check failed")
+	errHasErrors   = errors.New("errors occurred")
+)
+
 func main() {
 	setupColors()
 	ctx := kong.Parse(&CLI{},
@@ -81,11 +86,6 @@ type CheckCmd struct {
 	Update  bool     `short:"u" help:"Also check tags and pinned digests for updates."`
 	Verbose bool     `short:"v" help:"Show all images, including pinned."`
 }
-
-var (
-	errCheckFailed = errors.New("check failed")
-	errHasErrors   = errors.New("errors occurred")
-)
 
 func (cmd *CheckCmd) Run() error {
 	files, err := resolveFiles(cmd.Files, cmd.Dir)

@@ -26,50 +26,28 @@ func TestDimDigest(t *testing.T) {
 	})
 }
 
-func TestHasVisibleResults(t *testing.T) {
-	t.Run("pinned is visible", func(t *testing.T) {
-		results := []pindock.Result{{Status: pindock.StatusPinned}}
-		assert.True(t, hasVisibleResults(results, false))
-	})
-
-	t.Run("updated is visible", func(t *testing.T) {
-		results := []pindock.Result{{Status: pindock.StatusUpdated}}
-		assert.True(t, hasVisibleResults(results, false))
-	})
-
-	t.Run("error is visible", func(t *testing.T) {
-		results := []pindock.Result{{Status: pindock.StatusError}}
-		assert.True(t, hasVisibleResults(results, false))
-	})
-
-	t.Run("current hidden without verbose", func(t *testing.T) {
-		results := []pindock.Result{{Status: pindock.StatusCurrent}}
-		assert.False(t, hasVisibleResults(results, false))
-	})
-
-	t.Run("current visible with verbose", func(t *testing.T) {
-		results := []pindock.Result{{Status: pindock.StatusCurrent}}
-		assert.True(t, hasVisibleResults(results, true))
-	})
-
-	t.Run("skipped hidden without verbose", func(t *testing.T) {
-		results := []pindock.Result{{Status: pindock.StatusSkipped}}
-		assert.False(t, hasVisibleResults(results, false))
-	})
-
-	t.Run("held visible without verbose", func(t *testing.T) {
-		results := []pindock.Result{{Status: pindock.StatusHeld}}
-		assert.True(t, hasVisibleResults(results, false))
-	})
-
-	t.Run("skipped visible with verbose", func(t *testing.T) {
-		results := []pindock.Result{{Status: pindock.StatusSkipped}}
-		assert.True(t, hasVisibleResults(results, true))
-	})
-
-	t.Run("no results", func(t *testing.T) {
-		assert.False(t, hasVisibleResults(nil, false))
-	})
+func TestVisible(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  pindock.Status
+		verbose bool
+		want    bool
+	}{
+		{"pinned", pindock.StatusPinned, false, true},
+		{"updated", pindock.StatusUpdated, false, true},
+		{"error", pindock.StatusError, false, true},
+		{"held", pindock.StatusHeld, false, true},
+		{"current hidden without verbose", pindock.StatusCurrent, false, false},
+		{"current shown with verbose", pindock.StatusCurrent, true, true},
+		{"skipped hidden without verbose", pindock.StatusSkipped, false, false},
+		{"skipped shown with verbose", pindock.StatusSkipped, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := pindock.Result{Status: tt.status}
+			assert.Equal(t, tt.want, visible(&r, tt.verbose))
+		})
+	}
 }
 
 func captureStdout(t *testing.T, fn func()) string {
@@ -87,91 +65,71 @@ func captureStdout(t *testing.T, fn func()) string {
 }
 
 func TestPrintResult(t *testing.T) {
-	t.Run("pinned fix mode", func(t *testing.T) {
+	t.Run("pinned applied", func(t *testing.T) {
 		r := pindock.Result{
 			File:      "Dockerfile",
 			Ref:       pindock.ParseImageRef("golang:1.26"),
 			NewDigest: "sha256:abc",
 			Status:    pindock.StatusPinned,
 		}
-		out := captureStdout(t, func() { printResult(&r, true, false) })
+		out := captureStdout(t, func() { printResult(&r, true) })
 		assert.Contains(t, out, "PINNED")
 		assert.Contains(t, out, "golang:1.26")
 		assert.Contains(t, out, "→")
 	})
 
-	t.Run("pinned check mode", func(t *testing.T) {
+	t.Run("pinned not applied", func(t *testing.T) {
 		r := pindock.Result{
 			File:      "Dockerfile",
 			Ref:       pindock.ParseImageRef("golang:1.26"),
 			NewDigest: "sha256:abc",
 			Status:    pindock.StatusPinned,
 		}
-		out := captureStdout(t, func() { printResult(&r, false, false) })
+		out := captureStdout(t, func() { printResult(&r, false) })
 		assert.Contains(t, out, "UNPINNED")
 	})
 
-	t.Run("updated fix mode", func(t *testing.T) {
+	t.Run("updated applied", func(t *testing.T) {
 		r := pindock.Result{
 			File:      "Dockerfile",
 			Ref:       pindock.ParseImageRef("golang:1.26@sha256:old"),
 			NewDigest: "sha256:new",
 			Status:    pindock.StatusUpdated,
 		}
-		out := captureStdout(t, func() { printResult(&r, true, false) })
+		out := captureStdout(t, func() { printResult(&r, true) })
 		assert.Contains(t, out, "UPDATED")
 		assert.Contains(t, out, "→")
 	})
 
-	t.Run("updated check mode", func(t *testing.T) {
+	t.Run("updated not applied", func(t *testing.T) {
 		r := pindock.Result{
 			File:      "Dockerfile",
 			Ref:       pindock.ParseImageRef("golang:1.26@sha256:old"),
 			NewDigest: "sha256:new",
 			Status:    pindock.StatusUpdated,
 		}
-		out := captureStdout(t, func() { printResult(&r, false, false) })
+		out := captureStdout(t, func() { printResult(&r, false) })
 		assert.Contains(t, out, "OUTDATED")
 	})
 
-	t.Run("current verbose", func(t *testing.T) {
+	t.Run("current", func(t *testing.T) {
 		r := pindock.Result{
 			File:   "Dockerfile",
 			Ref:    pindock.ParseImageRef("golang:1.26@sha256:abc"),
 			Status: pindock.StatusCurrent,
 		}
-		out := captureStdout(t, func() { printResult(&r, false, true) })
+		out := captureStdout(t, func() { printResult(&r, false) })
 		assert.Contains(t, out, "OK")
 	})
 
-	t.Run("current not verbose", func(t *testing.T) {
-		r := pindock.Result{
-			File:   "Dockerfile",
-			Ref:    pindock.ParseImageRef("golang:1.26@sha256:abc"),
-			Status: pindock.StatusCurrent,
-		}
-		out := captureStdout(t, func() { printResult(&r, false, false) })
-		assert.Empty(t, out)
-	})
-
-	t.Run("skipped verbose", func(t *testing.T) {
+	t.Run("skipped", func(t *testing.T) {
 		r := pindock.Result{
 			File:   "Dockerfile",
 			Ref:    pindock.ParseImageRef("scratch"),
 			Status: pindock.StatusSkipped,
 		}
-		out := captureStdout(t, func() { printResult(&r, false, true) })
+		out := captureStdout(t, func() { printResult(&r, false) })
 		assert.Contains(t, out, "SKIP")
-	})
-
-	t.Run("skipped not verbose", func(t *testing.T) {
-		r := pindock.Result{
-			File:   "Dockerfile",
-			Ref:    pindock.ParseImageRef("scratch"),
-			Status: pindock.StatusSkipped,
-		}
-		out := captureStdout(t, func() { printResult(&r, false, false) })
-		assert.Empty(t, out)
 	})
 
 	t.Run("held", func(t *testing.T) {
@@ -181,7 +139,7 @@ func TestPrintResult(t *testing.T) {
 			HeldRef: "xray:26.6.27",
 			Status:  pindock.StatusHeld,
 		}
-		out := captureStdout(t, func() { printResult(&r, false, false) })
+		out := captureStdout(t, func() { printResult(&r, false) })
 		assert.Contains(t, out, "HELD")
 		assert.Contains(t, out, "→ xray:26.6.27  Beyond latest")
 	})
@@ -193,7 +151,7 @@ func TestPrintResult(t *testing.T) {
 			Status: pindock.StatusError,
 			Err:    errors.New("401 unauthorized"),
 		}
-		out := captureStdout(t, func() { printResult(&r, false, false) })
+		out := captureStdout(t, func() { printResult(&r, false) })
 		assert.Contains(t, out, "ERROR")
 		assert.Contains(t, out, "401 unauthorized")
 	})
@@ -207,8 +165,11 @@ func TestPrintResults(t *testing.T) {
 			{File: "compose.yml", Ref: pindock.ParseImageRef("redis:7"), NewDigest: "sha256:ghi", Status: pindock.StatusPinned},
 		}
 		out := captureStdout(t, func() { printResults(results, true, false) })
-		assert.Contains(t, out, "Dockerfile")
-		assert.Contains(t, out, "compose.yml")
+		assert.Equal(t, "Dockerfile\n"+
+			"  PINNED    golang:1.26\n          → golang:1.26@sha256:abc\n"+
+			"  PINNED    nginx:1.27\n          → nginx:1.27@sha256:def\n"+
+			"\ncompose.yml\n"+
+			"  PINNED    redis:7\n          → redis:7@sha256:ghi\n\n", out)
 	})
 
 	t.Run("skips file group with no visible results", func(t *testing.T) {
