@@ -23,7 +23,7 @@ FROM gcr.io/distroless/static@sha256:9197324ba51d9cd071af8505989365c006adf9d6d20
 
 COPY --from=builder /bin/pindock /bin/pindock
 
-USER nonroot:nonroot
+USER 65532:65532
 HEALTHCHECK NONE
 
 ENTRYPOINT ["/bin/pindock"]
