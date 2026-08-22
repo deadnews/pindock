@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.2](https://github.com/deadnews/pindock/compare/v1.1.1...v1.1.2) - 2026-08-22
+
+### Refactor
+
+- _(registry)_ merge tag lookups into a single repository pass - ([df803bd](https://github.com/deadnews/pindock/commit/df803bd1357fc732553761311ab1d82ab02565df))
+- print results in a single pass - ([b5d33c5](https://github.com/deadnews/pindock/commit/b5d33c5cd1f55ddb03385222a3d1996e176821d8))
+
+### Chores
+
+- _(docker)_ run as a numeric uid - ([4ea2ea1](https://github.com/deadnews/pindock/commit/4ea2ea193b3a3c892615a3e96f462275321a3a9e))
+- _(make)_ add `alpha` target for pre-release tags - ([f549467](https://github.com/deadnews/pindock/commit/f549467ea581a6708783670145661dd0ec6451dc))
+- _(prek)_ migrate to toml - ([f2fcaf8](https://github.com/deadnews/pindock/commit/f2fcaf893e8ac6792f86331a86878aa4a341e8b6))
+
+### Dependencies
+
+- update to `go:1.27` - ([580e0f9](https://github.com/deadnews/pindock/commit/580e0f9a563a0800eb8e19a06f6f583a7805d197))
+
 ## [1.1.1](https://github.com/deadnews/pindock/compare/v1.1.0...v1.1.1) - 2026-07-13
 
 ### Bug fixes
