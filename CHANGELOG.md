@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.3](https://github.com/deadnews/pindock/compare/v1.1.2...v1.1.3) - 2026-09-29
+
+### Bug fixes
+
+- take `Dockerfile` ref offsets from token positions - ([7a31151](https://github.com/deadnews/pindock/commit/7a311510a23f8d77697d3c73a4ae18a312332af6))
+
+### Refactor
+
+- drop dead tag-change guard in `classifyRefs` - ([3c9a888](https://github.com/deadnews/pindock/commit/3c9a888f02a8807ad11d04d95b1793cf3d93abdc))
+- derive digest lookups from tag lookup refs - ([a72ff24](https://github.com/deadnews/pindock/commit/a72ff243cea84883718a5d5c5160b00c1c434ab2))
+
+### Chores
+
+- _(make)_ default `tag` to bumped version - ([f2b2334](https://github.com/deadnews/pindock/commit/f2b23341e0be6003ce99ebdc27a0885d2b691531))
+
+### Dependencies
+
+- update deps - ([3bf1104](https://github.com/deadnews/pindock/commit/3bf1104d5e85c5df1037408b59a5ad802a790e01))
+
 ## [1.1.2](https://github.com/deadnews/pindock/compare/v1.1.1...v1.1.2) - 2026-08-22
 
 ### Refactor
