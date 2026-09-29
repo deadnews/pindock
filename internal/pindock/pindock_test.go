@@ -155,34 +155,6 @@ func TestShouldSkip(t *testing.T) {
 	assert.True(t, shouldSkip(ParseImageRef("golang:${TAG}")))
 }
 
-func TestCollectResolvable(t *testing.T) {
-	parsed := []fileData{
-		{refs: []ImageRef{ParseImageRef("golang:1.26"), ParseImageRef("scratch")}},
-		{refs: []ImageRef{ParseImageRef("${BASE}"), ParseImageRef("nginx:1.27")}},
-	}
-
-	t.Run("without update", func(t *testing.T) {
-		refs := collectResolvable(parsed, false, nil)
-		assert.Equal(t, []string{"golang:1.26", "nginx:1.27"}, refs)
-	})
-
-	t.Run("skips pinned without update", func(t *testing.T) {
-		data := []fileData{
-			{refs: []ImageRef{ParseImageRef("golang:1.26"), ParseImageRef("nginx:1.27@sha256:abc")}},
-		}
-		refs := collectResolvable(data, false, nil)
-		assert.Equal(t, []string{"golang:1.26"}, refs)
-	})
-
-	t.Run("includes pinned with update", func(t *testing.T) {
-		data := []fileData{
-			{refs: []ImageRef{ParseImageRef("golang:1.26"), ParseImageRef("nginx:1.27@sha256:abc")}},
-		}
-		refs := collectResolvable(data, true, nil)
-		require.Len(t, refs, 2)
-	})
-}
-
 func TestClassifyRefs(t *testing.T) {
 	t.Run("skipped", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("scratch")}}
@@ -361,15 +333,6 @@ func TestClassifyRefs_tagUpdate(t *testing.T) {
 	})
 }
 
-func TestCollectResolvable_tagUpdate(t *testing.T) {
-	data := []fileData{
-		{refs: []ImageRef{ParseImageRef("redis:7-alpine@sha256:abc")}},
-	}
-	tagUpdates := map[string]string{"redis:7-alpine": "redis:8-alpine"}
-	refs := collectResolvable(data, true, tagUpdates)
-	assert.Equal(t, []string{"redis:8-alpine"}, refs)
-}
-
 func TestResult_PinnedRef(t *testing.T) {
 	t.Run("without tag update", func(t *testing.T) {
 		r := Result{Ref: ParseImageRef("golang:1.26"), NewDigest: "sha256:abc"}
@@ -417,26 +380,26 @@ func TestParseAllFiles(t *testing.T) {
 	})
 }
 
-func TestTagLookupRefs(t *testing.T) {
+func TestEligibleRefs(t *testing.T) {
 	parsed := []fileData{
 		{refs: []ImageRef{ParseImageRef("golang:1.26"), ParseImageRef("nginx:1.27@sha256:abc")}},
 		{refs: []ImageRef{ParseImageRef("redis:7"), ParseImageRef("scratch"), ParseImageRef("$IMAGE:tag")}},
 	}
 
 	t.Run("include pinned", func(t *testing.T) {
-		refs := tagLookupRefs(parsed, true)
+		refs := eligibleRefs(parsed, true)
 		assert.Equal(t, []string{"golang:1.26", "nginx:1.27", "redis:7"}, refs)
 	})
 
 	t.Run("exclude pinned", func(t *testing.T) {
-		refs := tagLookupRefs(parsed, false)
+		refs := eligibleRefs(parsed, false)
 		assert.Equal(t, []string{"golang:1.26", "redis:7"}, refs)
 	})
 }
 
-func TestTagLookupRefs_empty(t *testing.T) {
-	assert.Empty(t, tagLookupRefs(nil, true))
-	assert.Empty(t, tagLookupRefs([]fileData{{refs: nil}}, false))
+func TestEligibleRefs_empty(t *testing.T) {
+	assert.Empty(t, eligibleRefs(nil, true))
+	assert.Empty(t, eligibleRefs([]fileData{{refs: nil}}, false))
 }
 
 func TestRun(t *testing.T) {

@@ -103,12 +103,16 @@ func process(ctx context.Context, files []string, opts options) ([]Result, error
 		return nil, err
 	}
 
-	lookupRefs := tagLookupRefs(parsed, opts.update)
+	lookupRefs := eligibleRefs(parsed, opts.update)
 
 	var rd resolveData
 	rd.tagUpdates, rd.tagHeld, rd.tagErrors = registry.FindTagUpdates(ctx, lookupRefs, opts.update)
 
-	toResolve := collectResolvable(parsed, opts.update, rd.tagUpdates)
+	// Resolve against updated tags so digests match the new versions.
+	toResolve := make([]string, len(lookupRefs))
+	for i, ref := range lookupRefs {
+		toResolve[i] = cmp.Or(rd.tagUpdates[ref], ref)
+	}
 	rd.digests, rd.errs = registry.ResolveAll(ctx, toResolve)
 
 	var results []Result
@@ -128,8 +132,8 @@ func process(ctx context.Context, files []string, opts options) ([]Result, error
 	return results, nil
 }
 
-// tagLookupRefs collects tag references eligible for registry tag lookups.
-func tagLookupRefs(parsed []fileData, includePinned bool) []string {
+// eligibleRefs collects tag references that need registry lookups.
+func eligibleRefs(parsed []fileData, includePinned bool) []string {
 	var refs []string
 	for _, f := range parsed {
 		for _, ref := range f.refs {
@@ -137,26 +141,6 @@ func tagLookupRefs(parsed []fileData, includePinned bool) []string {
 				continue
 			}
 			refs = append(refs, ref.TagRef)
-		}
-	}
-	return refs
-}
-
-func collectResolvable(parsed []fileData, update bool, tagUpdates map[string]string) []string {
-	var refs []string
-	for _, f := range parsed {
-		for _, ref := range f.refs {
-			if shouldSkip(ref) {
-				continue
-			}
-			if !update && ref.Digest != "" {
-				continue
-			}
-			tagRef := ref.TagRef
-			if newTag, ok := tagUpdates[ref.TagRef]; ok {
-				tagRef = newTag
-			}
-			refs = append(refs, tagRef)
 		}
 	}
 	return refs
