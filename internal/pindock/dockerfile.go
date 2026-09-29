@@ -2,76 +2,51 @@ package pindock
 
 import "strings"
 
-// logicalLine is a Dockerfile instruction with continuations joined.
-type logicalLine struct {
+// token is a whitespace-separated word of a Dockerfile instruction.
+type token struct {
 	text  string
-	start int // byte offset of first source line
-	end   int // byte offset past last char of last source line
+	start int // byte offset in file content
 }
 
 // ParseDockerfile extracts image references from Dockerfile content.
 func ParseDockerfile(content string) []ImageRef {
-	logical := joinLogicalLines(content)
-	stageNames := collectStageNames(logical)
-	masked := maskCommentLines(content)
+	instructions := splitInstructions(content)
+	stageNames := collectStageNames(instructions)
 
-	var refs []ImageRef
-	for _, ll := range logical {
-		lineRefs := parseInstruction(ll.text, stageNames)
-
-		// Resolve byte offsets in the masked region; unlocatable refs are dropped.
-		region := masked[ll.start:ll.end]
-		searchFrom := 0
-		for _, ref := range lineRefs {
-			idx := strings.Index(region[searchFrom:], ref.Original)
-			if idx < 0 {
-				continue
-			}
-			ref.Start = ll.start + searchFrom + idx
-			searchFrom += idx + len(ref.Original)
-			refs = append(refs, ref)
-		}
+	refs := make([]ImageRef, 0, len(instructions))
+	for _, tokens := range instructions {
+		refs = append(refs, parseInstruction(tokens, stageNames)...)
 	}
 	return refs
 }
 
-// joinLogicalLines merges backslash-continued lines, tracking byte ranges.
-func joinLogicalLines(content string) []logicalLine {
-	var result []logicalLine
-	var buf strings.Builder
-	groupStart := 0
+// splitInstructions tokenizes content per instruction, joining continued lines.
+func splitInstructions(content string) [][]token {
+	var result [][]token
+	var tokens []token
 	offset := 0
 
 	for line := range strings.SplitSeq(content, "\n") {
+		lineStart := offset
+		offset += len(line) + 1
 		// Per Dockerfile spec, comments are removed before continuation handling.
 		if isCommentLine(line) {
-			offset += len(line) + 1
 			continue
 		}
-		if buf.Len() == 0 {
-			groupStart = offset
+		body, continued := strings.CutSuffix(strings.TrimRight(line, " \t\r"), `\`)
+		pos := 0
+		for field := range strings.FieldsSeq(body) {
+			i := pos + strings.Index(body[pos:], field)
+			tokens = append(tokens, token{text: field, start: lineStart + i})
+			pos = i + len(field)
 		}
-		trimmed := strings.TrimRight(line, " \t\r")
-		if strings.HasSuffix(trimmed, `\`) {
-			buf.WriteString(trimmed[:len(trimmed)-1])
-			buf.WriteByte(' ')
-		} else {
-			buf.WriteString(trimmed)
-			result = append(result, logicalLine{
-				text:  buf.String(),
-				start: groupStart,
-				end:   offset + len(line),
-			})
-			buf.Reset()
+		if !continued && len(tokens) > 0 {
+			result = append(result, tokens)
+			tokens = nil
 		}
-		offset += len(line) + 1
 	}
-	if buf.Len() > 0 {
-		result = append(result, logicalLine{
-			text:  buf.String(),
-			start: groupStart,
-			end:   offset - 1,
-		})
+	if len(tokens) > 0 {
+		result = append(result, tokens)
 	}
 	return result
 }
@@ -80,32 +55,16 @@ func isCommentLine(line string) bool {
 	return strings.HasPrefix(strings.TrimLeft(line, " \t"), "#")
 }
 
-// maskCommentLines blanks comment lines so offset searches cannot match inside them.
-func maskCommentLines(content string) string {
-	b := []byte(content)
-	offset := 0
-	for line := range strings.SplitSeq(content, "\n") {
-		if isCommentLine(line) {
-			for i := range len(line) {
-				b[offset+i] = ' '
-			}
-		}
-		offset += len(line) + 1
-	}
-	return string(b)
-}
-
 // collectStageNames gathers FROM ... AS names so --from can distinguish stages from images.
-func collectStageNames(lines []logicalLine) map[string]bool {
+func collectStageNames(instructions [][]token) map[string]bool {
 	names := make(map[string]bool)
-	for _, ll := range lines {
-		fields := strings.Fields(ll.text)
-		if len(fields) < 2 || !strings.EqualFold(fields[0], "FROM") {
+	for _, tokens := range instructions {
+		if !strings.EqualFold(tokens[0].text, "FROM") {
 			continue
 		}
-		for i := 1; i < len(fields)-1; i++ {
-			if strings.EqualFold(fields[i], "AS") {
-				names[strings.ToLower(fields[i+1])] = true
+		for i := 1; i < len(tokens)-1; i++ {
+			if strings.EqualFold(tokens[i].text, "AS") {
+				names[strings.ToLower(tokens[i+1].text)] = true
 				break
 			}
 		}
@@ -113,50 +72,44 @@ func collectStageNames(lines []logicalLine) map[string]bool {
 	return names
 }
 
-func parseInstruction(line string, stageNames map[string]bool) []ImageRef {
-	fields := strings.Fields(line)
-	if len(fields) < 2 {
-		return nil
-	}
-	switch strings.ToUpper(fields[0]) {
+func parseInstruction(tokens []token, stageNames map[string]bool) []ImageRef {
+	switch strings.ToUpper(tokens[0].text) {
 	case "FROM":
-		return parseFromArgs(fields[1:], stageNames)
+		return parseFromArgs(tokens[1:], stageNames)
 	case "COPY":
-		return parseCopyFrom(fields[1:], stageNames)
+		return parseCopyFrom(tokens[1:], stageNames)
 	case "RUN":
-		return parseRunMountFrom(fields[1:], stageNames)
+		return parseRunMountFrom(tokens[1:], stageNames)
 	default:
 		return nil
 	}
 }
 
 // parseFromArgs extracts the image from FROM [--platform=...] <image> [AS <name>].
-func parseFromArgs(args []string, stageNames map[string]bool) []ImageRef {
+func parseFromArgs(args []token, stageNames map[string]bool) []ImageRef {
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "--") {
+		if strings.HasPrefix(arg.text, "--") {
 			continue
 		}
-		if strings.EqualFold(arg, "AS") {
-			break
-		}
-		if isStageRef(arg, stageNames) {
+		if strings.EqualFold(arg.text, "AS") || isStageRef(arg.text, stageNames) {
 			return nil
 		}
-		return []ImageRef{ParseImageRef(arg)}
+		return []ImageRef{imageRefAt(arg.text, arg.start)}
 	}
 	return nil
 }
 
 // parseCopyFrom extracts the image from COPY --from=<image>.
-func parseCopyFrom(args []string, stageNames map[string]bool) []ImageRef {
+func parseCopyFrom(args []token, stageNames map[string]bool) []ImageRef {
+	const prefix = "--from="
 	for _, arg := range args {
-		if ref, ok := strings.CutPrefix(arg, "--from="); ok {
+		if ref, ok := strings.CutPrefix(arg.text, prefix); ok {
 			if isStageRef(ref, stageNames) {
 				return nil
 			}
-			return []ImageRef{ParseImageRef(ref)}
+			return []ImageRef{imageRefAt(ref, arg.start+len(prefix))}
 		}
-		if !strings.HasPrefix(arg, "--") {
+		if !strings.HasPrefix(arg.text, "--") {
 			break
 		}
 	}
@@ -164,26 +117,32 @@ func parseCopyFrom(args []string, stageNames map[string]bool) []ImageRef {
 }
 
 // parseRunMountFrom extracts images from RUN --mount=from=<image>.
-func parseRunMountFrom(args []string, stageNames map[string]bool) []ImageRef {
+func parseRunMountFrom(args []token, stageNames map[string]bool) []ImageRef {
+	const prefix = "--mount="
 	var refs []ImageRef
 	for _, arg := range args {
-		mount, ok := strings.CutPrefix(arg, "--mount=")
+		mount, ok := strings.CutPrefix(arg.text, prefix)
 		if !ok {
-			if !strings.HasPrefix(arg, "--") {
+			if !strings.HasPrefix(arg.text, "--") {
 				break
 			}
 			continue
 		}
+		start := arg.start + len(prefix)
 		for kv := range strings.SplitSeq(mount, ",") {
-			if ref, ok := strings.CutPrefix(kv, "from="); ok {
-				if isStageRef(ref, stageNames) {
-					continue
-				}
-				refs = append(refs, ParseImageRef(ref))
+			if ref, ok := strings.CutPrefix(kv, "from="); ok && !isStageRef(ref, stageNames) {
+				refs = append(refs, imageRefAt(ref, start+len("from=")))
 			}
+			start += len(kv) + 1
 		}
 	}
 	return refs
+}
+
+func imageRefAt(s string, start int) ImageRef {
+	ref := ParseImageRef(s)
+	ref.Start = start
+	return ref
 }
 
 // isStageRef reports whether ref is a build stage name or numeric index.

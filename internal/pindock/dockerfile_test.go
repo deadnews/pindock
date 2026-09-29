@@ -286,6 +286,15 @@ func TestParseDockerfile_offsets(t *testing.T) {
 		assert.Greater(t, refs[0].Start, strings.Index(content, "# needs"))
 	})
 
+	t.Run("ref text in an earlier flag does not capture offset", func(t *testing.T) {
+		content := "COPY --chown=nginx:nginx --from=nginx /a /b\n" +
+			"RUN --mount=type=cache,id=golang,target=/x --mount=from=golang,target=/y cmd"
+		refs := ParseDockerfile(content)
+		require.Len(t, refs, 2)
+		assert.Equal(t, strings.Index(content, "--from=nginx")+len("--from="), refs[0].Start)
+		assert.Equal(t, strings.Index(content, "from=golang")+len("from="), refs[1].Start)
+	})
+
 	t.Run("multi-stage offsets", func(t *testing.T) {
 		content := "FROM golang:1.26-alpine@sha256:aaa AS builder\nFROM gcr.io/distroless/static@sha256:bbb AS runtime\nCOPY --from=ghcr.io/org/check:1.0@sha256:ccc /bin/check /bin/check"
 		refs := ParseDockerfile(content)
