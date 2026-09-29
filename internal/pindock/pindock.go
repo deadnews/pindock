@@ -175,12 +175,8 @@ func classifyRefs(fp *fileData, rd *resolveData, opts options) (results []Result
 		}
 
 		// Resolve against updated tag so the digest matches the new version.
-		lookupTag := ref.TagRef
-		var newTagRef string
-		if t, ok := rd.tagUpdates[ref.TagRef]; ok {
-			lookupTag = t
-			newTagRef = t
-		}
+		newTagRef := rd.tagUpdates[ref.TagRef]
+		lookupTag := cmp.Or(newTagRef, ref.TagRef)
 
 		digest, ok := rd.digests[lookupTag]
 		if !ok {
@@ -192,20 +188,16 @@ func classifyRefs(fp *fileData, rd *resolveData, opts options) (results []Result
 			continue
 		}
 
-		tagChanged := newTagRef != "" && newTagRef != ref.TagRef
-		if !tagChanged && ref.Digest == digest {
+		if newTagRef == "" && ref.Digest == digest {
 			results = append(results, currentResult(fp, rd, ref))
 			continue
 		}
 
 		status := StatusUpdated
-		if ref.Digest == "" && !tagChanged {
+		if ref.Digest == "" && newTagRef == "" {
 			status = StatusPinned
 		}
-		result := Result{File: fp.path, Ref: ref, NewDigest: digest, Status: status}
-		if tagChanged {
-			result.NewTagRef = newTagRef
-		}
+		result := Result{File: fp.path, Ref: ref, NewDigest: digest, NewTagRef: newTagRef, Status: status}
 
 		if opts.apply {
 			repls = append(repls, replacement{
