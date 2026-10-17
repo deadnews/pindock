@@ -105,7 +105,8 @@ func (cmd *CheckCmd) Run() error {
 	printResults(results, false, cmd.Verbose)
 
 	if slices.ContainsFunc(results, func(r pindock.Result) bool {
-		return r.Status == pindock.StatusPinned || r.Status == pindock.StatusUpdated || r.Status == pindock.StatusError
+		return r.Status == pindock.StatusPinned || r.Status == pindock.StatusUpdated ||
+			r.Status == pindock.StatusError
 	}) {
 		return errCheckFailed
 	}

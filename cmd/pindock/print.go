@@ -95,21 +95,25 @@ func printResult(r *pindock.Result, applied bool) {
 		if applied {
 			label = colorLabel(colorYellow, "PINNED")
 		}
-		fmt.Printf("  %s  %s\n          %s %s\n", label, r.Ref.Original, arrow, dimDigest(r.PinnedRef()))
+		fmt.Printf("  %s  %s\n          %s %s\n",
+			label, r.Ref.Original, arrow, dimDigest(r.PinnedRef()))
 	case pindock.StatusUpdated:
 		label := colorLabel(colorRed, "OUTDATED")
 		if applied {
 			label = colorLabel(colorYellow, "UPDATED")
 		}
-		fmt.Printf("  %s  %s\n          %s %s\n", label, dimDigest(r.Ref.Original), arrow, dimDigest(r.PinnedRef()))
+		fmt.Printf("  %s  %s\n          %s %s\n",
+			label, dimDigest(r.Ref.Original), arrow, dimDigest(r.PinnedRef()))
 	case pindock.StatusCurrent:
 		fmt.Printf("  %s  %s\n", colorLabel(colorGreen, "OK"), dimDigest(r.Ref.Original))
 	case pindock.StatusSkipped:
 		fmt.Printf("  %s  %s\n", colorLabel(colorDim, "SKIP"), r.Ref.Original)
 	case pindock.StatusHeld:
 		fmt.Printf("  %s  %s\n          %s %s  %s\n",
-			colorLabel(colorCyan, "HELD"), dimDigest(r.Ref.Original), arrow, r.HeldRef, paint(colorCyan, "Beyond latest"))
+			colorLabel(colorCyan, "HELD"), dimDigest(r.Ref.Original),
+			arrow, r.HeldRef, paint(colorCyan, "Beyond latest"))
 	case pindock.StatusError:
-		fmt.Printf("  %s  %s  %s\n", colorLabel(colorRed, "ERROR"), r.Ref.TagRef, paint(colorRed, r.Err.Error()))
+		fmt.Printf("  %s  %s  %s\n",
+			colorLabel(colorRed, "ERROR"), r.Ref.TagRef, paint(colorRed, r.Err.Error()))
 	}
 }

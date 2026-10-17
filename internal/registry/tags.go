@@ -46,7 +46,12 @@ func parseVersionedTag(tag string) (parsedTag, bool) {
 		}
 		version[i] = n
 	}
-	return parsedTag{prefix: m[1], version: version, suffix: suffix, prerelease: prerelease}, true
+	return parsedTag{
+		prefix:     m[1],
+		version:    version,
+		suffix:     suffix,
+		prerelease: prerelease,
+	}, true
 }
 
 // findLatestTag finds the latest tag with the same prefix, suffix, and depth,
@@ -60,7 +65,8 @@ func findLatestTag(currentTag string, allTags []string, limit []int) (string, bo
 	if current.prerelease {
 		base := current.version[:len(current.version)-1]
 		stable := parsedTag{prefix: current.prefix, version: base}
-		if tag, version := newestMatch(allTags, stable, limit); tag != "" && slices.Compare(version, base) >= 0 {
+		tag, version := newestMatch(allTags, stable, limit)
+		if tag != "" && slices.Compare(version, base) >= 0 {
 			return tag, true
 		}
 		limit = nil
@@ -77,7 +83,8 @@ func findLatestTag(currentTag string, allTags []string, limit []int) (string, bo
 func newestMatch(allTags []string, want parsedTag, limit []int) (tag string, version []int) {
 	for _, t := range allTags {
 		parsed, ok := parseVersionedTag(t)
-		if !ok || parsed.prefix != want.prefix || parsed.suffix != want.suffix || len(parsed.version) != len(want.version) {
+		sameAffix := ok && parsed.prefix == want.prefix && parsed.suffix == want.suffix
+		if !sameAffix || len(parsed.version) != len(want.version) {
 			continue
 		}
 		if exceedsLimit(parsed.version, limit) {
@@ -142,9 +149,10 @@ func taggedRefs(tagRefs []string, versioned bool) (refs []taggedRef, repos map[s
 func FindTagUpdates(ctx context.Context, tagRefs []string, versioned bool) (updates, held map[string]string, failed map[string]error) {
 	refs, repos := taggedRefs(tagRefs, versioned)
 
-	lookups, repoErrors := runConcurrently(repos, func(repo name.Repository) (repoLookup, error) {
+	lookup := func(repo name.Repository) (repoLookup, error) {
 		return lookupRepo(ctx, repo)
-	})
+	}
+	lookups, repoErrors := runConcurrently(repos, lookup)
 
 	updates = make(map[string]string)
 	held = make(map[string]string)

@@ -41,7 +41,8 @@ func headDigest(ctx context.Context, ref name.Reference) (string, error) {
 // simplifyError extracts the HTTP status from registry transport errors.
 func simplifyError(err error) error {
 	if terr, ok := errors.AsType[*transport.Error](err); ok {
-		status := strings.ReplaceAll(strings.ToLower(http.StatusText(terr.StatusCode)), " ", "-")
+		text := strings.ToLower(http.StatusText(terr.StatusCode))
+		status := strings.ReplaceAll(text, " ", "-")
 		return fmt.Errorf("%d %s", terr.StatusCode, status)
 	}
 	return err

@@ -45,7 +45,11 @@ func latestCandidates(tags []string) []string {
 		if !ok || parsed.suffix != "" {
 			continue
 		}
-		cands = append(cands, candidate{raw: tag, version: parsed.version, bare: parsed.prefix == ""})
+		cands = append(cands, candidate{
+			raw:     tag,
+			version: parsed.version,
+			bare:    parsed.prefix == "",
+		})
 	}
 	slices.SortFunc(cands, func(a, b candidate) int {
 		if a.bare != b.bare {

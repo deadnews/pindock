@@ -106,7 +106,8 @@ func process(ctx context.Context, files []string, opts options) ([]Result, error
 	lookupRefs := eligibleRefs(parsed, opts.update)
 
 	var rd resolveData
-	rd.tagUpdates, rd.tagHeld, rd.tagErrors = registry.FindTagUpdates(ctx, lookupRefs, opts.update)
+	rd.tagUpdates, rd.tagHeld, rd.tagErrors = registry.FindTagUpdates(
+		ctx, lookupRefs, opts.update)
 
 	// Resolve against updated tags so digests match the new versions.
 	toResolve := make([]string, len(lookupRefs))
@@ -169,7 +170,12 @@ func classifyRefs(fp *fileData, rd *resolveData, opts options) (results []Result
 		// Cannot verify if a newer tag exists: tag listing failed in update mode.
 		if ref.Digest != "" {
 			if err, ok := rd.tagErrors[ref.TagRef]; ok {
-				results = append(results, Result{File: fp.path, Ref: ref, Status: StatusError, Err: err})
+				results = append(results, Result{
+					File:   fp.path,
+					Ref:    ref,
+					Status: StatusError,
+					Err:    err,
+				})
 				continue
 			}
 		}
@@ -184,7 +190,12 @@ func classifyRefs(fp *fileData, rd *resolveData, opts options) (results []Result
 			if refErr == nil {
 				refErr = fmt.Errorf("no digest for %s", lookupTag)
 			}
-			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusError, Err: refErr})
+			results = append(results, Result{
+				File:   fp.path,
+				Ref:    ref,
+				Status: StatusError,
+				Err:    refErr,
+			})
 			continue
 		}
 
@@ -197,7 +208,13 @@ func classifyRefs(fp *fileData, rd *resolveData, opts options) (results []Result
 		if ref.Digest == "" && newTagRef == "" {
 			status = StatusPinned
 		}
-		result := Result{File: fp.path, Ref: ref, NewDigest: digest, NewTagRef: newTagRef, Status: status}
+		result := Result{
+			File:      fp.path,
+			Ref:       ref,
+			NewDigest: digest,
+			NewTagRef: newTagRef,
+			Status:    status,
+		}
 
 		if opts.apply {
 			repls = append(repls, replacement{
@@ -249,7 +266,12 @@ func parseAllFiles(files []string) ([]fileData, error) {
 			refs = ParseCompose(content)
 		}
 
-		result = append(result, fileData{path: f, mode: info.Mode(), content: content, refs: refs})
+		result = append(result, fileData{
+			path:    f,
+			mode:    info.Mode(),
+			content: content,
+			refs:    refs,
+		})
 	}
 	return result, nil
 }
