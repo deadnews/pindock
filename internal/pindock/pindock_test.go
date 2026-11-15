@@ -334,7 +334,6 @@ func TestParseAllFiles(t *testing.T) {
 		require.Len(t, result, 1)
 		require.Len(t, result[0].refs, 1)
 		assert.Equal(t, "golang:1.26", result[0].refs[0].TagRef)
-		assert.Equal(t, os.FileMode(0o644), result[0].mode.Perm())
 	})
 
 	t.Run("compose", func(t *testing.T) {
@@ -496,6 +495,7 @@ func TestProcess_pinsFilesEndToEnd(t *testing.T) {
 	cf := filepath.Join(dir, "compose.yml")
 	compose := "services:\n  db:\n    image: " + pgRepo + ":18-alpine\n  app:\n    image: ${IMG}\n"
 	require.NoError(t, os.WriteFile(cf, []byte(compose), 0o600))
+	require.NoError(t, os.Chmod(cf, 0o640))
 
 	results, err := Process(context.Background(), []string{df, cf}, Options{Apply: true})
 	require.NoError(t, err)
@@ -522,7 +522,7 @@ func TestProcess_pinsFilesEndToEnd(t *testing.T) {
 
 	info, err := os.Stat(cf)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
 
 	// Second run is a no-op: everything already pinned.
 	results, err = Process(context.Background(), []string{df, cf}, Options{Apply: true})

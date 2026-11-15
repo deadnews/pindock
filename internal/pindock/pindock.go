@@ -74,7 +74,6 @@ type Options struct {
 
 type fileData struct {
 	path    string
-	mode    os.FileMode
 	content string
 	refs    []ImageRef
 }
@@ -97,7 +96,8 @@ func Process(ctx context.Context, files []string, opts Options) ([]Result, error
 
 		if opts.Apply && len(repls) > 0 {
 			newContent := applyReplacements(fp.content, repls)
-			if err := os.WriteFile(fp.path, []byte(newContent), fp.mode); err != nil {
+			// WriteFile keeps the permissions of an existing file.
+			if err := os.WriteFile(fp.path, []byte(newContent), 0o600); err != nil {
 				return nil, fmt.Errorf("write %s: %w", fp.path, err)
 			}
 		}
@@ -207,10 +207,6 @@ func parseAllFiles(files []string) ([]fileData, error) {
 			return nil, fmt.Errorf("unrecognized file type: %s", f)
 		}
 
-		info, err := os.Stat(f)
-		if err != nil {
-			return nil, fmt.Errorf("stat %s: %w", f, err)
-		}
 		data, err := os.ReadFile(f) //nolint:gosec // path comes from user args or discovery
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", f, err)
@@ -227,7 +223,6 @@ func parseAllFiles(files []string) ([]fileData, error) {
 
 		result = append(result, fileData{
 			path:    f,
-			mode:    info.Mode(),
 			content: content,
 			refs:    refs,
 		})
