@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.1.4](https://github.com/deadnews/pindock/compare/v1.1.3...v1.1.4) - 2026-11-15
+
+### Refactor
+
+- derive file rewrites from results - ([8f5b7db](https://github.com/deadnews/pindock/commit/8f5b7db127939f44da90637ad3fad3e996e1af94))
+- drop the stored file mode and its `os.Stat` - ([f42c123](https://github.com/deadnews/pindock/commit/f42c123783e4120096030e00ba7940f1bfeef1ec))
+- share one `scan` between `run` and `check` - ([fd04500](https://github.com/deadnews/pindock/commit/fd045002738caa083f3c1996c6752c55f2a599c8))
+- replace `Run` and `Check` with `Process` - ([6954aac](https://github.com/deadnews/pindock/commit/6954aacefed20438caf00553758c5157894cce20))
+- join tag updates and digests in `registry.Resolve` - ([7b465ab](https://github.com/deadnews/pindock/commit/7b465ab5e825ee7b2e835624a5895b7e57721062))
+
+### Performance
+
+- _(registry)_ authenticate once per repository - ([c85a1cd](https://github.com/deadnews/pindock/commit/c85a1cd51f9cd149e79e8561cecb2de14a2a5165))
+
+### Styling
+
+- break long lines - ([93cd0ec](https://github.com/deadnews/pindock/commit/93cd0ec572a4f42f3e39e7ebfe285c3b04803bc5))
+
+### Chores
+
+- _(prek)_ build `golangci-lint` with a prek-managed go - ([e7940e6](https://github.com/deadnews/pindock/commit/e7940e6643fd7fcde03aa6a3c54d05c495201d55))
+
+### Dependencies
+
+- update deps - ([0dbddd5](https://github.com/deadnews/pindock/commit/0dbddd554c6204d083694df76c2fa0b41b51a13b))
+
 ## [1.1.3](https://github.com/deadnews/pindock/compare/v1.1.2...v1.1.3) - 2026-09-29
 
 ### Bug fixes
