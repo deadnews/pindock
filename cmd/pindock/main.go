@@ -14,10 +14,7 @@ import (
 
 var version = "dev"
 
-var (
-	errCheckFailed = errors.New("check failed")
-	errHasErrors   = errors.New("errors occurred")
-)
+var errReported = errors.New("failure reported in results")
 
 func main() {
 	setupColors()
@@ -32,7 +29,7 @@ func main() {
 		kong.Vars{"version": version},
 	)
 	if err := ctx.Run(); err != nil {
-		if errors.Is(err, errCheckFailed) || errors.Is(err, errHasErrors) {
+		if errors.Is(err, errReported) {
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -55,29 +52,8 @@ type RunCmd struct {
 }
 
 func (cmd *RunCmd) Run() error {
-	files, err := resolveFiles(cmd.Files, cmd.Dir)
-	if err != nil {
-		return err
-	}
-	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "no files found")
-		return nil
-	}
-
 	opts := pindock.Options{Apply: true, Update: cmd.Update}
-	results, err := pindock.Process(context.Background(), files, opts)
-	if err != nil {
-		return fmt.Errorf("run: %w", err)
-	}
-
-	printResults(results, true, cmd.Verbose)
-
-	if slices.ContainsFunc(results, func(r pindock.Result) bool {
-		return r.Status == pindock.StatusError
-	}) {
-		return errHasErrors
-	}
-	return nil
+	return scan(cmd.Files, cmd.Dir, opts, cmd.Verbose)
 }
 
 // CheckCmd verifies all images are pinned.
@@ -89,7 +65,13 @@ type CheckCmd struct {
 }
 
 func (cmd *CheckCmd) Run() error {
-	files, err := resolveFiles(cmd.Files, cmd.Dir)
+	opts := pindock.Options{Update: cmd.Update}
+	return scan(cmd.Files, cmd.Dir, opts, cmd.Verbose)
+}
+
+// scan fails on an error result and, unless opts.Apply, on a change left unapplied.
+func scan(explicit []string, dir string, opts pindock.Options, verbose bool) error {
+	files, err := resolveFiles(explicit, dir)
 	if err != nil {
 		return err
 	}
@@ -98,19 +80,19 @@ func (cmd *CheckCmd) Run() error {
 		return nil
 	}
 
-	opts := pindock.Options{Update: cmd.Update}
 	results, err := pindock.Process(context.Background(), files, opts)
 	if err != nil {
-		return fmt.Errorf("check: %w", err)
+		return fmt.Errorf("process files: %w", err)
 	}
 
-	printResults(results, false, cmd.Verbose)
+	printResults(results, opts.Apply, verbose)
 
-	if slices.ContainsFunc(results, func(r pindock.Result) bool {
-		return r.Status == pindock.StatusPinned || r.Status == pindock.StatusUpdated ||
-			r.Status == pindock.StatusError
-	}) {
-		return errCheckFailed
+	failed := func(r pindock.Result) bool {
+		pending := r.Status == pindock.StatusPinned || r.Status == pindock.StatusUpdated
+		return r.Status == pindock.StatusError || (pending && !opts.Apply)
+	}
+	if slices.ContainsFunc(results, failed) {
+		return errReported
 	}
 	return nil
 }
