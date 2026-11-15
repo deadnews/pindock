@@ -18,6 +18,15 @@ import (
 
 const maxConcurrency = 10
 
+// puller authenticates once per repository and reuses that across calls.
+var puller = func() *remote.Puller {
+	p, err := remote.NewPuller(remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		panic(err)
+	}
+	return p
+}()
+
 // Lookup is the registry's answer for one tag reference.
 type Lookup struct {
 	NewTagRef string // tag ref it moves to; empty if it stays
@@ -63,10 +72,7 @@ func resolveDigest(ctx context.Context, tagRef string) (string, error) {
 
 // headDigest fetches the manifest digest for a parsed reference.
 func headDigest(ctx context.Context, ref name.Reference) (string, error) {
-	desc, err := remote.Head(ref,
-		remote.WithAuthFromKeychain(authn.DefaultKeychain),
-		remote.WithContext(ctx),
-	)
+	desc, err := puller.Head(ctx, ref)
 	if err != nil {
 		return "", simplifyError(err)
 	}
@@ -85,10 +91,7 @@ func simplifyError(err error) error {
 
 // listTags lists all tags in a repository.
 func listTags(ctx context.Context, repo name.Repository) ([]string, error) {
-	tags, err := remote.List(repo,
-		remote.WithAuthFromKeychain(authn.DefaultKeychain),
-		remote.WithContext(ctx),
-	)
+	tags, err := puller.List(ctx, repo)
 	if err != nil {
 		return nil, simplifyError(err)
 	}

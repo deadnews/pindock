@@ -4,8 +4,10 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -114,4 +116,24 @@ func TestResolve_repoError(t *testing.T) {
 	lookups := Resolve(t.Context(), []string{ref}, true)
 	require.Error(t, lookups[ref].TagErr)
 	assert.Error(t, lookups[ref].DigestErr)
+}
+
+func TestResolve_pingsRegistryOncePerRepo(t *testing.T) {
+	var pings atomic.Int32
+	reg := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/" {
+			pings.Add(1)
+		}
+		reg.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	repo := strings.TrimPrefix(srv.URL, "http://") + "/lib/pinged"
+	pushTag(t, repo, "1.0")
+	pushTag(t, repo, "1.1", "latest")
+	pings.Store(0)
+
+	lookups := Resolve(t.Context(), []string{repo + ":1.0", repo + ":latest"}, true)
+	require.NoError(t, lookups[repo+":1.0"].DigestErr)
+	assert.EqualValues(t, 1, pings.Load())
 }
