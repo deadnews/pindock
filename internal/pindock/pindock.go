@@ -91,15 +91,19 @@ func Process(ctx context.Context, files []string, opts Options) ([]Result, error
 	var results []Result
 	for i := range parsed {
 		fp := &parsed[i]
-		fileResults, repls := classifyRefs(fp, lookups, opts)
+		fileResults := classifyRefs(fp, lookups, opts.Update)
 		results = append(results, fileResults...)
 
-		if opts.Apply && len(repls) > 0 {
-			newContent := applyReplacements(fp.content, repls)
-			// WriteFile keeps the permissions of an existing file.
-			if err := os.WriteFile(fp.path, []byte(newContent), 0o600); err != nil {
-				return nil, fmt.Errorf("write %s: %w", fp.path, err)
-			}
+		if !opts.Apply {
+			continue
+		}
+		newContent := applyResults(fp.content, fileResults)
+		if newContent == fp.content {
+			continue
+		}
+		// WriteFile keeps the permissions of an existing file.
+		if err := os.WriteFile(fp.path, []byte(newContent), 0o600); err != nil {
+			return nil, fmt.Errorf("write %s: %w", fp.path, err)
 		}
 	}
 
@@ -120,14 +124,8 @@ func eligibleRefs(parsed []fileData, includePinned bool) []string {
 	return refs
 }
 
-// replacement is a position-based text substitution.
-type replacement struct {
-	start  int
-	end    int
-	newStr string
-}
-
-func classifyRefs(fp *fileData, lookups map[string]registry.Lookup, opts Options) (results []Result, repls []replacement) {
+func classifyRefs(fp *fileData, lookups map[string]registry.Lookup, update bool) []Result {
+	var results []Result
 	for _, ref := range fp.refs {
 		if shouldSkip(ref) {
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusSkipped})
@@ -135,7 +133,7 @@ func classifyRefs(fp *fileData, lookups map[string]registry.Lookup, opts Options
 		}
 
 		// Pinned and not updating: no resolution needed.
-		if !opts.Update && ref.Digest != "" {
+		if !update && ref.Digest != "" {
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusCurrent})
 			continue
 		}
@@ -177,26 +175,16 @@ func classifyRefs(fp *fileData, lookups map[string]registry.Lookup, opts Options
 		if ref.Digest == "" && lookup.NewTagRef == "" {
 			status = StatusPinned
 		}
-		result := Result{
+		results = append(results, Result{
 			File:      fp.path,
 			Ref:       ref,
 			NewDigest: lookup.Digest,
 			NewTagRef: lookup.NewTagRef,
 			Status:    status,
-		}
-
-		if opts.Apply {
-			repls = append(repls, replacement{
-				start:  ref.Start,
-				end:    ref.Start + len(ref.Original),
-				newStr: result.PinnedRef(),
-			})
-		}
-
-		results = append(results, result)
+		})
 	}
 
-	return results, repls
+	return results
 }
 
 func parseAllFiles(files []string) ([]fileData, error) {
@@ -234,14 +222,16 @@ func shouldSkip(ref ImageRef) bool {
 	return ref.HasVariable() || ref.TagRef == "scratch"
 }
 
-// applyReplacements substitutes refs at their recorded byte offsets.
-// Replacements are applied from end to start so earlier offsets stay valid.
-func applyReplacements(content string, repls []replacement) string {
-	slices.SortFunc(repls, func(a, b replacement) int {
-		return cmp.Compare(b.start, a.start)
-	})
-	for _, r := range repls {
-		content = content[:r.start] + r.newStr + content[r.end:]
+// applyResults rewrites each pinned or updated ref at its byte offset.
+// Results must be in file order: applying them backward keeps earlier offsets valid.
+func applyResults(content string, results []Result) string {
+	for i := range slices.Backward(results) {
+		r := &results[i]
+		if r.Status != StatusPinned && r.Status != StatusUpdated {
+			continue
+		}
+		end := r.Ref.Start + len(r.Ref.Original)
+		content = content[:r.Ref.Start] + r.PinnedRef() + content[end:]
 	}
 	return content
 }

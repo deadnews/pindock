@@ -76,77 +76,116 @@ func TestImageRef_HasVariable(t *testing.T) {
 	assert.True(t, ParseImageRef("golang:$TAG").HasVariable())
 }
 
-func TestApplyReplacements(t *testing.T) {
+func TestApplyResults(t *testing.T) {
+	at := func(s string, start int) ImageRef {
+		ref := ParseImageRef(s)
+		ref.Start = start
+		return ref
+	}
+
 	t.Run("single replacement", func(t *testing.T) {
 		content := "FROM golang:1.26-alpine AS builder"
-		result := applyReplacements(content, []replacement{
-			{start: 5, end: 23, newStr: "golang:1.26-alpine@sha256:abc"},
+		result := applyResults(content, []Result{
+			{Ref: at("golang:1.26-alpine", 5), NewDigest: "sha256:abc", Status: StatusPinned},
 		})
 		assert.Equal(t, "FROM golang:1.26-alpine@sha256:abc AS builder", result)
 	})
 
 	t.Run("update digested ref", func(t *testing.T) {
 		content := "FROM golang:1.26-alpine@sha256:old AS builder"
-		result := applyReplacements(content, []replacement{
-			{start: 5, end: 34, newStr: "golang:1.26-alpine@sha256:new"},
+		result := applyResults(content, []Result{
+			{Ref: at("golang:1.26-alpine@sha256:old", 5), NewDigest: "sha256:new", Status: StatusUpdated},
 		})
 		assert.Equal(t, "FROM golang:1.26-alpine@sha256:new AS builder", result)
 	})
 
 	t.Run("multiple replacements same image", func(t *testing.T) {
 		content := "FROM golang:1.26 AS a\nFROM golang:1.26 AS b"
-		result := applyReplacements(content, []replacement{
-			{start: 5, end: 16, newStr: "golang:1.26@sha256:abc"},
-			{start: 27, end: 38, newStr: "golang:1.26@sha256:abc"},
+		result := applyResults(content, []Result{
+			{Ref: at("golang:1.26", 5), NewDigest: "sha256:abc", Status: StatusPinned},
+			{Ref: at("golang:1.26", 27), NewDigest: "sha256:abc", Status: StatusPinned},
 		})
 		assert.Equal(t, "FROM golang:1.26@sha256:abc AS a\nFROM golang:1.26@sha256:abc AS b", result)
 	})
 
 	t.Run("mixed digested and unpinned", func(t *testing.T) {
 		content := "FROM golang:1.26-alpine@sha256:old AS a\nFROM golang:1.26-alpine AS b"
-		result := applyReplacements(content, []replacement{
-			{start: 5, end: 34, newStr: "golang:1.26-alpine@sha256:new"},
-			{start: 45, end: 63, newStr: "golang:1.26-alpine@sha256:new"},
+		result := applyResults(content, []Result{
+			{Ref: at("golang:1.26-alpine@sha256:old", 5), NewDigest: "sha256:new", Status: StatusUpdated},
+			{Ref: at("golang:1.26-alpine", 45), NewDigest: "sha256:new", Status: StatusPinned},
 		})
 		assert.Equal(t, "FROM golang:1.26-alpine@sha256:new AS a\nFROM golang:1.26-alpine@sha256:new AS b", result)
 	})
 
 	t.Run("distinct refs at different offsets", func(t *testing.T) {
 		content := "FROM nginx:1.27 AS web\nFROM golang:1.26-alpine AS builder"
-		result := applyReplacements(content, []replacement{
-			{start: 5, end: 15, newStr: "nginx:1.27@sha256:aaa"},
-			{start: 28, end: 46, newStr: "golang:1.26-alpine@sha256:bbb"},
+		result := applyResults(content, []Result{
+			{Ref: at("nginx:1.27", 5), NewDigest: "sha256:aaa", Status: StatusPinned},
+			{Ref: at("golang:1.26-alpine", 28), NewDigest: "sha256:bbb", Status: StatusPinned},
 		})
 		assert.Equal(t, "FROM nginx:1.27@sha256:aaa AS web\nFROM golang:1.26-alpine@sha256:bbb AS builder", result)
 	})
 
+	t.Run("tag move rewrites tag and digest", func(t *testing.T) {
+		content := "FROM redis:7-alpine@sha256:old AS cache"
+		result := applyResults(content, []Result{
+			{
+				Ref:       at("redis:7-alpine@sha256:old", 5),
+				NewDigest: "sha256:new",
+				NewTagRef: "redis:8-alpine",
+				Status:    StatusUpdated,
+			},
+		})
+		assert.Equal(t, "FROM redis:8-alpine@sha256:new AS cache", result)
+	})
+
+	t.Run("only pinned and updated results change content", func(t *testing.T) {
+		content := "FROM scratch\n" +
+			"FROM nginx:1.27@sha256:abc\n" +
+			"FROM golang:1.26\n" +
+			"FROM redis:7@sha256:abc\n" +
+			"FROM bad:ref"
+		result := applyResults(content, []Result{
+			{Ref: at("scratch", 5), Status: StatusSkipped},
+			{Ref: at("nginx:1.27@sha256:abc", 18), Status: StatusCurrent},
+			{Ref: at("golang:1.26", 45), NewDigest: "sha256:new", Status: StatusPinned},
+			{Ref: at("redis:7@sha256:abc", 62), HeldRef: "redis:8", Status: StatusHeld},
+			{Ref: at("bad:ref", 86), Status: StatusError, Err: errors.New("not found")},
+		})
+		assert.Equal(t, "FROM scratch\n"+
+			"FROM nginx:1.27@sha256:abc\n"+
+			"FROM golang:1.26@sha256:new\n"+
+			"FROM redis:7@sha256:abc\n"+
+			"FROM bad:ref", result)
+	})
+
 	t.Run("does not corrupt comment containing image ref", func(t *testing.T) {
 		content := "# Use nginx:1.27 for production\nFROM nginx:1.27"
-		result := applyReplacements(content, []replacement{
-			{start: 37, end: 47, newStr: "nginx:1.27@sha256:abc"},
+		result := applyResults(content, []Result{
+			{Ref: at("nginx:1.27", 37), NewDigest: "sha256:abc", Status: StatusPinned},
 		})
 		assert.Equal(t, "# Use nginx:1.27 for production\nFROM nginx:1.27@sha256:abc", result)
 	})
 
 	t.Run("does not corrupt ARG value containing image ref", func(t *testing.T) {
 		content := "ARG IMAGE=nginx:1.27\nFROM nginx:1.27"
-		result := applyReplacements(content, []replacement{
-			{start: 26, end: 36, newStr: "nginx:1.27@sha256:abc"},
+		result := applyResults(content, []Result{
+			{Ref: at("nginx:1.27", 26), NewDigest: "sha256:abc", Status: StatusPinned},
 		})
 		assert.Equal(t, "ARG IMAGE=nginx:1.27\nFROM nginx:1.27@sha256:abc", result)
 	})
 
 	t.Run("does not corrupt substring in unrelated image", func(t *testing.T) {
 		content := "ENV IMG=custom-nginx:1.27\nFROM nginx:1.27"
-		result := applyReplacements(content, []replacement{
-			{start: 31, end: 41, newStr: "nginx:1.27@sha256:abc"},
+		result := applyResults(content, []Result{
+			{Ref: at("nginx:1.27", 31), NewDigest: "sha256:abc", Status: StatusPinned},
 		})
 		assert.Equal(t, "ENV IMG=custom-nginx:1.27\nFROM nginx:1.27@sha256:abc", result)
 	})
 
 	t.Run("empty", func(t *testing.T) {
 		content := "FROM golang:1.26"
-		assert.Equal(t, content, applyReplacements(content, nil))
+		assert.Equal(t, content, applyResults(content, nil))
 	})
 }
 
@@ -159,75 +198,59 @@ func TestShouldSkip(t *testing.T) {
 func TestClassifyRefs(t *testing.T) {
 	t.Run("skipped", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("scratch")}}
-		results, repls := classifyRefs(fp, nil, Options{})
+		results := classifyRefs(fp, nil, false)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusSkipped, results[0].Status)
-		assert.Empty(t, repls)
 	})
 
 	t.Run("pinned treated as current without update", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26@sha256:abc")}}
-		results, repls := classifyRefs(fp, nil, Options{})
+		results := classifyRefs(fp, nil, false)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusCurrent, results[0].Status)
-		assert.Empty(t, repls)
 	})
 
 	t.Run("current with update", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26@sha256:abc")}}
-		results, repls := classifyRefs(fp, map[string]registry.Lookup{
+		results := classifyRefs(fp, map[string]registry.Lookup{
 			"golang:1.26": {Digest: "sha256:abc"},
-		}, Options{Update: true})
+		}, true)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusCurrent, results[0].Status)
-		assert.Empty(t, repls)
 	})
 
-	t.Run("unpinned with apply", func(t *testing.T) {
+	t.Run("unpinned", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26")}}
-		results, repls := classifyRefs(fp, map[string]registry.Lookup{
+		results := classifyRefs(fp, map[string]registry.Lookup{
 			"golang:1.26": {Digest: "sha256:abc"},
-		}, Options{Apply: true})
+		}, false)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusPinned, results[0].Status)
-		require.Len(t, repls, 1)
-		assert.Equal(t, "golang:1.26@sha256:abc", repls[0].newStr)
-	})
-
-	t.Run("unpinned without apply", func(t *testing.T) {
-		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26")}}
-		results, repls := classifyRefs(fp, map[string]registry.Lookup{
-			"golang:1.26": {Digest: "sha256:abc"},
-		}, Options{})
-		require.Len(t, results, 1)
-		assert.Equal(t, StatusPinned, results[0].Status)
-		assert.Empty(t, repls)
+		assert.Equal(t, "golang:1.26@sha256:abc", results[0].PinnedRef())
 	})
 
 	t.Run("outdated with update", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26@sha256:old")}}
-		results, repls := classifyRefs(fp, map[string]registry.Lookup{
+		results := classifyRefs(fp, map[string]registry.Lookup{
 			"golang:1.26": {Digest: "sha256:new"},
-		}, Options{Apply: true, Update: true})
+		}, true)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusUpdated, results[0].Status)
-		require.Len(t, repls, 1)
-		assert.Equal(t, "golang:1.26@sha256:new", repls[0].newStr)
+		assert.Equal(t, "golang:1.26@sha256:new", results[0].PinnedRef())
 	})
 
 	t.Run("outdated without update treated as current", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("golang:1.26@sha256:old")}}
-		results, repls := classifyRefs(fp, nil, Options{Apply: true})
+		results := classifyRefs(fp, nil, false)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusCurrent, results[0].Status)
-		assert.Empty(t, repls)
 	})
 
 	t.Run("resolve error", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("bad:ref")}}
-		results, _ := classifyRefs(fp, map[string]registry.Lookup{
+		results := classifyRefs(fp, map[string]registry.Lookup{
 			"bad:ref": {DigestErr: errors.New("not found")},
-		}, Options{})
+		}, false)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusError, results[0].Status)
 		assert.EqualError(t, results[0].Err, "not found")
@@ -235,7 +258,7 @@ func TestClassifyRefs(t *testing.T) {
 
 	t.Run("missing lookup", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("unknown:ref")}}
-		results, _ := classifyRefs(fp, map[string]registry.Lookup{}, Options{})
+		results := classifyRefs(fp, map[string]registry.Lookup{}, false)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusError, results[0].Status)
 		assert.Contains(t, results[0].Err.Error(), "no digest for")
@@ -243,72 +266,66 @@ func TestClassifyRefs(t *testing.T) {
 }
 
 func TestClassifyRefs_tagUpdate(t *testing.T) {
-	t.Run("tag updated with apply", func(t *testing.T) {
+	t.Run("tag updated pinned ref", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("redis:7-alpine@sha256:old")}}
-		results, repls := classifyRefs(fp, map[string]registry.Lookup{
+		results := classifyRefs(fp, map[string]registry.Lookup{
 			"redis:7-alpine": {NewTagRef: "redis:8-alpine", Digest: "sha256:new"},
-		}, Options{Apply: true, Update: true})
+		}, true)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusUpdated, results[0].Status)
 		assert.Equal(t, "redis:8-alpine", results[0].NewTagRef)
-		require.Len(t, repls, 1)
-		assert.Equal(t, "redis:8-alpine@sha256:new", repls[0].newStr)
+		assert.Equal(t, "redis:8-alpine@sha256:new", results[0].PinnedRef())
 	})
 
 	t.Run("tag updated unpinned ref", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("redis:7-alpine")}}
-		results, repls := classifyRefs(fp, map[string]registry.Lookup{
+		results := classifyRefs(fp, map[string]registry.Lookup{
 			"redis:7-alpine": {NewTagRef: "redis:8-alpine", Digest: "sha256:new"},
-		}, Options{Apply: true, Update: true})
+		}, true)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusUpdated, results[0].Status)
 		assert.Equal(t, "redis:8-alpine", results[0].NewTagRef)
-		require.Len(t, repls, 1)
-		assert.Equal(t, "redis:8-alpine@sha256:new", repls[0].newStr)
+		assert.Equal(t, "redis:8-alpine@sha256:new", results[0].PinnedRef())
 	})
 
 	t.Run("tag listing error on pinned ref reports error", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("redis:7-alpine@sha256:old")}}
-		results, repls := classifyRefs(fp, map[string]registry.Lookup{
+		results := classifyRefs(fp, map[string]registry.Lookup{
 			"redis:7-alpine": {Digest: "sha256:new", TagErr: errors.New("auth failed")},
-		}, Options{Apply: true, Update: true})
+		}, true)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusError, results[0].Status)
 		assert.Contains(t, results[0].Err.Error(), "auth failed")
-		assert.Empty(t, repls)
 	})
 
 	t.Run("current ref with held update reported held", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("xray:26.3.27@sha256:abc")}}
-		results, repls := classifyRefs(fp, map[string]registry.Lookup{
+		results := classifyRefs(fp, map[string]registry.Lookup{
 			"xray:26.3.27": {Digest: "sha256:abc", HeldRef: "xray:26.6.27"},
-		}, Options{Apply: true, Update: true})
+		}, true)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusHeld, results[0].Status)
 		assert.Equal(t, "xray:26.6.27", results[0].HeldRef)
-		assert.Empty(t, repls)
 	})
 
 	t.Run("held skipped when digest updates", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("xray:26.3.27@sha256:old")}}
-		results, repls := classifyRefs(fp, map[string]registry.Lookup{
+		results := classifyRefs(fp, map[string]registry.Lookup{
 			"xray:26.3.27": {Digest: "sha256:new", HeldRef: "xray:26.6.27"},
-		}, Options{Apply: true, Update: true})
+		}, true)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusUpdated, results[0].Status)
 		assert.Empty(t, results[0].HeldRef)
-		require.Len(t, repls, 1)
 	})
 
 	t.Run("tag listing error on unpinned ref still pins", func(t *testing.T) {
 		fp := &fileData{path: "Dockerfile", refs: []ImageRef{ParseImageRef("redis:7-alpine")}}
-		results, repls := classifyRefs(fp, map[string]registry.Lookup{
+		results := classifyRefs(fp, map[string]registry.Lookup{
 			"redis:7-alpine": {Digest: "sha256:abc", TagErr: errors.New("auth failed")},
-		}, Options{Apply: true, Update: true})
+		}, true)
 		require.Len(t, results, 1)
 		assert.Equal(t, StatusPinned, results[0].Status)
-		require.Len(t, repls, 1)
-		assert.Equal(t, "redis:7-alpine@sha256:abc", repls[0].newStr)
+		assert.Equal(t, "redis:7-alpine@sha256:abc", results[0].PinnedRef())
 	})
 }
 
