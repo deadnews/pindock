@@ -88,38 +88,18 @@ type fileData struct {
 	refs    []ImageRef
 }
 
-// resolveData holds digest and tag-update results from registry lookups.
-type resolveData struct {
-	digests    map[string]string
-	errs       map[string]error
-	tagUpdates map[string]string
-	tagHeld    map[string]string
-	tagErrors  map[string]error
-}
-
 func process(ctx context.Context, files []string, opts options) ([]Result, error) {
 	parsed, err := parseAllFiles(files)
 	if err != nil {
 		return nil, err
 	}
 
-	lookupRefs := eligibleRefs(parsed, opts.update)
-
-	var rd resolveData
-	rd.tagUpdates, rd.tagHeld, rd.tagErrors = registry.FindTagUpdates(
-		ctx, lookupRefs, opts.update)
-
-	// Resolve against updated tags so digests match the new versions.
-	toResolve := make([]string, len(lookupRefs))
-	for i, ref := range lookupRefs {
-		toResolve[i] = cmp.Or(rd.tagUpdates[ref], ref)
-	}
-	rd.digests, rd.errs = registry.ResolveAll(ctx, toResolve)
+	lookups := registry.Resolve(ctx, eligibleRefs(parsed, opts.update), opts.update)
 
 	var results []Result
 	for i := range parsed {
 		fp := &parsed[i]
-		fileResults, repls := classifyRefs(fp, &rd, opts)
+		fileResults, repls := classifyRefs(fp, lookups, opts)
 		results = append(results, fileResults...)
 
 		if opts.apply && len(repls) > 0 {
@@ -154,7 +134,7 @@ type replacement struct {
 	newStr string
 }
 
-func classifyRefs(fp *fileData, rd *resolveData, opts options) (results []Result, repls []replacement) {
+func classifyRefs(fp *fileData, lookups map[string]registry.Lookup, opts options) (results []Result, repls []replacement) {
 	for _, ref := range fp.refs {
 		if shouldSkip(ref) {
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusSkipped})
@@ -163,56 +143,52 @@ func classifyRefs(fp *fileData, rd *resolveData, opts options) (results []Result
 
 		// Pinned and not updating: no resolution needed.
 		if !opts.update && ref.Digest != "" {
-			results = append(results, currentResult(fp, rd, ref))
+			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusCurrent})
 			continue
 		}
 
+		lookup := lookups[ref.TagRef]
+
 		// Cannot verify if a newer tag exists: tag listing failed in update mode.
-		if ref.Digest != "" {
-			if err, ok := rd.tagErrors[ref.TagRef]; ok {
-				results = append(results, Result{
-					File:   fp.path,
-					Ref:    ref,
-					Status: StatusError,
-					Err:    err,
-				})
-				continue
-			}
-		}
-
-		// Resolve against updated tag so the digest matches the new version.
-		newTagRef := rd.tagUpdates[ref.TagRef]
-		lookupTag := cmp.Or(newTagRef, ref.TagRef)
-
-		digest, ok := rd.digests[lookupTag]
-		if !ok {
-			refErr := rd.errs[lookupTag]
-			if refErr == nil {
-				refErr = fmt.Errorf("no digest for %s", lookupTag)
-			}
+		if ref.Digest != "" && lookup.TagErr != nil {
 			results = append(results, Result{
 				File:   fp.path,
 				Ref:    ref,
 				Status: StatusError,
-				Err:    refErr,
+				Err:    lookup.TagErr,
 			})
 			continue
 		}
 
-		if newTagRef == "" && ref.Digest == digest {
-			results = append(results, currentResult(fp, rd, ref))
+		if lookup.Digest == "" {
+			results = append(results, Result{
+				File:   fp.path,
+				Ref:    ref,
+				Status: StatusError,
+				Err:    cmp.Or(lookup.DigestErr, fmt.Errorf("no digest for %s", ref.TagRef)),
+			})
+			continue
+		}
+
+		if lookup.NewTagRef == "" && ref.Digest == lookup.Digest {
+			result := Result{File: fp.path, Ref: ref, Status: StatusCurrent}
+			if lookup.HeldRef != "" {
+				result.Status = StatusHeld
+				result.HeldRef = lookup.HeldRef
+			}
+			results = append(results, result)
 			continue
 		}
 
 		status := StatusUpdated
-		if ref.Digest == "" && newTagRef == "" {
+		if ref.Digest == "" && lookup.NewTagRef == "" {
 			status = StatusPinned
 		}
 		result := Result{
 			File:      fp.path,
 			Ref:       ref,
-			NewDigest: digest,
-			NewTagRef: newTagRef,
+			NewDigest: lookup.Digest,
+			NewTagRef: lookup.NewTagRef,
 			Status:    status,
 		}
 
@@ -228,16 +204,6 @@ func classifyRefs(fp *fileData, rd *resolveData, opts options) (results []Result
 	}
 
 	return results, repls
-}
-
-// currentResult reports an up-to-date ref, noting updates held back by latest.
-func currentResult(fp *fileData, rd *resolveData, ref ImageRef) Result {
-	result := Result{File: fp.path, Ref: ref, Status: StatusCurrent}
-	if heldRef, ok := rd.tagHeld[ref.TagRef]; ok {
-		result.Status = StatusHeld
-		result.HeldRef = heldRef
-	}
-	return result
 }
 
 func parseAllFiles(files []string) ([]fileData, error) {

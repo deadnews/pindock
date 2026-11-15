@@ -157,21 +157,21 @@ func TestFindTagUpdates(t *testing.T) {
 
 	t.Run("upgrades to newest", func(t *testing.T) {
 		ref := repo + ":1.0"
-		updates, held, failed := FindTagUpdates(t.Context(), []string{ref}, true)
+		updates, held, failed := findTagUpdates(t.Context(), []string{ref}, true)
 		assert.Empty(t, failed)
 		assert.Empty(t, held)
 		assert.Equal(t, repo+":2.0", updates[ref])
 	})
 
 	t.Run("already newest", func(t *testing.T) {
-		updates, held, failed := FindTagUpdates(t.Context(), []string{repo + ":2.0"}, true)
+		updates, held, failed := findTagUpdates(t.Context(), []string{repo + ":2.0"}, true)
 		assert.Empty(t, failed)
 		assert.Empty(t, held)
 		assert.Empty(t, updates)
 	})
 
 	t.Run("versioned refs ignored without versioned", func(t *testing.T) {
-		updates, held, failed := FindTagUpdates(t.Context(), []string{repo + ":1.0"}, false)
+		updates, held, failed := findTagUpdates(t.Context(), []string{repo + ":1.0"}, false)
 		assert.Empty(t, failed)
 		assert.Empty(t, held)
 		assert.Empty(t, updates)
@@ -186,14 +186,14 @@ func TestFindTagUpdates_cappedByLatest(t *testing.T) {
 
 	t.Run("stops at latest version", func(t *testing.T) {
 		ref := repo + ":1.0"
-		updates, held, failed := FindTagUpdates(t.Context(), []string{ref}, true)
+		updates, held, failed := findTagUpdates(t.Context(), []string{ref}, true)
 		assert.Empty(t, failed)
 		assert.Empty(t, held)
 		assert.Equal(t, repo+":1.1", updates[ref])
 	})
 
 	t.Run("no update past latest is reported held", func(t *testing.T) {
-		updates, held, failed := FindTagUpdates(t.Context(), []string{repo + ":1.1"}, true)
+		updates, held, failed := findTagUpdates(t.Context(), []string{repo + ":1.1"}, true)
 		assert.Empty(t, failed)
 		assert.Empty(t, updates)
 		assert.Equal(t, repo+":2.0", held[repo+":1.1"])
@@ -203,7 +203,7 @@ func TestFindTagUpdates_cappedByLatest(t *testing.T) {
 func TestFindTagUpdates_repoError(t *testing.T) {
 	host := startRegistry(t)
 	ref := host + "/lib/missing:1.0"
-	updates, held, failed := FindTagUpdates(t.Context(), []string{ref}, true)
+	updates, held, failed := findTagUpdates(t.Context(), []string{ref}, true)
 	assert.Empty(t, updates)
 	assert.Empty(t, held)
 	assert.Contains(t, failed, ref)

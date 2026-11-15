@@ -28,27 +28,27 @@ func TestFindTagUpdates_latestAlias(t *testing.T) {
 
 	t.Run("picks most specific matching alias", func(t *testing.T) {
 		ref := repo + ":latest"
-		updates, held, failed := FindTagUpdates(t.Context(), []string{ref}, false)
+		updates, held, failed := findTagUpdates(t.Context(), []string{ref}, false)
 		assert.Empty(t, failed)
 		assert.Empty(t, held)
 		assert.Equal(t, repo+":8.0.1", updates[ref])
 	})
 
 	t.Run("untagged ref", func(t *testing.T) {
-		updates, _, failed := FindTagUpdates(t.Context(), []string{repo}, false)
+		updates, _, failed := findTagUpdates(t.Context(), []string{repo}, false)
 		assert.Empty(t, failed)
 		assert.Equal(t, repo+":8.0.1", updates[repo])
 	})
 
 	t.Run("versioned refs ignored without versioned", func(t *testing.T) {
-		updates, _, failed := FindTagUpdates(t.Context(), []string{repo + ":8"}, false)
+		updates, _, failed := findTagUpdates(t.Context(), []string{repo + ":8"}, false)
 		assert.Empty(t, failed)
 		assert.Empty(t, updates)
 	})
 
 	t.Run("latest alias and held update resolve in one pass", func(t *testing.T) {
 		latestRef, versionedRef := repo+":latest", repo+":8.0.1"
-		updates, held, failed := FindTagUpdates(t.Context(), []string{latestRef, versionedRef}, true)
+		updates, held, failed := findTagUpdates(t.Context(), []string{latestRef, versionedRef}, true)
 		assert.Empty(t, failed)
 		assert.Equal(t, repo+":8.0.1", updates[latestRef])
 		assert.Equal(t, repo+":9.0.0", held[versionedRef])
@@ -59,7 +59,7 @@ func TestFindTagUpdates_noVersionedAlias(t *testing.T) {
 	repo := startRegistry(t) + "/lib/app"
 	pushTag(t, repo, "latest", "bookworm")
 
-	updates, _, failed := FindTagUpdates(t.Context(), []string{repo + ":latest"}, false)
+	updates, _, failed := findTagUpdates(t.Context(), []string{repo + ":latest"}, false)
 	assert.Empty(t, failed)
 	assert.Empty(t, updates)
 }
@@ -68,7 +68,7 @@ func TestFindTagUpdates_missingLatest(t *testing.T) {
 	repo := startRegistry(t) + "/lib/app"
 	pushTag(t, repo, "1.0")
 
-	updates, _, failed := FindTagUpdates(t.Context(), []string{repo + ":latest"}, false)
+	updates, _, failed := findTagUpdates(t.Context(), []string{repo + ":latest"}, false)
 	assert.Empty(t, failed)
 	assert.Empty(t, updates)
 }
@@ -77,7 +77,7 @@ func TestFindTagUpdates_latestRepoError(t *testing.T) {
 	host := startRegistry(t)
 	ref := host + "/lib/missing:latest"
 
-	updates, _, failed := FindTagUpdates(t.Context(), []string{ref}, false)
+	updates, _, failed := findTagUpdates(t.Context(), []string{ref}, false)
 	assert.Empty(t, updates)
 	assert.Contains(t, failed, ref)
 }
@@ -89,7 +89,7 @@ func TestFindTagUpdates_candidateCap(t *testing.T) {
 		pushTag(t, repo, fmt.Sprintf("%d.0", i+2))
 	}
 
-	updates, _, failed := FindTagUpdates(t.Context(), []string{repo + ":latest"}, false)
+	updates, _, failed := findTagUpdates(t.Context(), []string{repo + ":latest"}, false)
 	assert.Empty(t, failed)
 	assert.Empty(t, updates)
 }

@@ -64,14 +64,14 @@ func TestResolveDigest(t *testing.T) {
 	repo := startRegistry(t) + "/lib/app"
 	want := pushTag(t, repo, "1.0")
 
-	got, err := ResolveDigest(t.Context(), repo+":1.0")
+	got, err := resolveDigest(t.Context(), repo+":1.0")
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }
 
 func TestResolveDigest_notFound(t *testing.T) {
 	repo := startRegistry(t) + "/lib/app"
-	_, err := ResolveDigest(t.Context(), repo+":missing")
+	_, err := resolveDigest(t.Context(), repo+":missing")
 	assert.Error(t, err)
 }
 
@@ -81,7 +81,7 @@ func TestResolveAll(t *testing.T) {
 	d2 := pushTag(t, repo, "2.0")
 	ref1, ref2 := repo+":1.0", repo+":2.0"
 
-	digests, errs := ResolveAll(t.Context(), []string{ref1, ref2, ref1})
+	digests, errs := resolveAll(t.Context(), []string{ref1, ref2, ref1})
 	assert.Empty(t, errs)
 	assert.Equal(t, d1, digests[ref1])
 	assert.Equal(t, d2, digests[ref2])
@@ -92,7 +92,26 @@ func TestResolveAll_partialError(t *testing.T) {
 	pushTag(t, repo, "1.0")
 	good, bad := repo+":1.0", repo+":missing"
 
-	digests, errs := ResolveAll(t.Context(), []string{good, bad})
+	digests, errs := resolveAll(t.Context(), []string{good, bad})
 	assert.Contains(t, digests, good)
 	assert.Contains(t, errs, bad)
+}
+
+func TestResolve(t *testing.T) {
+	repo := startRegistry(t) + "/lib/app"
+	pushTag(t, repo, "1.0")
+	dNew := pushTag(t, repo, "1.1", "latest")
+	ref, missing := repo+":1.0", repo+":missing"
+
+	lookups := Resolve(t.Context(), []string{ref, missing}, true)
+	assert.Equal(t, Lookup{NewTagRef: repo + ":1.1", Digest: dNew}, lookups[ref])
+	require.Error(t, lookups[missing].DigestErr)
+	assert.Empty(t, lookups[missing].Digest)
+}
+
+func TestResolve_repoError(t *testing.T) {
+	ref := startRegistry(t) + "/lib/missing:1.0"
+	lookups := Resolve(t.Context(), []string{ref}, true)
+	require.Error(t, lookups[ref].TagErr)
+	assert.Error(t, lookups[ref].DigestErr)
 }

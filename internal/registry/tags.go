@@ -143,10 +143,10 @@ func taggedRefs(tagRefs []string, versioned bool) (refs []taggedRef, repos map[s
 	return refs, repos
 }
 
-// FindTagUpdates resolves latest and untagged references to the version tag
+// findTagUpdates resolves latest and untagged references to the version tag
 // sharing their digest. When versioned is true, version tags also move to the
 // newest release, capped at the version latest points to; blocked moves are held.
-func FindTagUpdates(ctx context.Context, tagRefs []string, versioned bool) (updates, held map[string]string, failed map[string]error) {
+func findTagUpdates(ctx context.Context, tagRefs []string, versioned bool) (updates, held map[string]string, failed map[string]error) {
 	refs, repos := taggedRefs(tagRefs, versioned)
 
 	lookup := func(repo name.Repository) (repoLookup, error) {

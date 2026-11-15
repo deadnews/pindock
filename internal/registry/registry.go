@@ -2,6 +2,7 @@
 package registry
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -17,8 +18,42 @@ import (
 
 const maxConcurrency = 10
 
-// ResolveDigest fetches the current digest for a tag reference.
-func ResolveDigest(ctx context.Context, tagRef string) (string, error) {
+// Lookup is the registry's answer for one tag reference.
+type Lookup struct {
+	NewTagRef string // tag ref it moves to; empty if it stays
+	Digest    string // of NewTagRef if set, else of the reference; empty on DigestErr
+	HeldRef   string // newer tag ref beyond latest, not applied
+	TagErr    error  // tag listing failed: NewTagRef and HeldRef are unknown
+	DigestErr error
+}
+
+// Resolve looks up each tag reference, keyed by the reference as given.
+// Without update, only latest and untagged references move to another tag.
+func Resolve(ctx context.Context, tagRefs []string, update bool) map[string]Lookup {
+	updates, held, tagErrs := findTagUpdates(ctx, tagRefs, update)
+
+	// Resolve against updated tags so digests match the new versions.
+	targets := make([]string, len(tagRefs))
+	for i, ref := range tagRefs {
+		targets[i] = cmp.Or(updates[ref], ref)
+	}
+	digests, errs := resolveAll(ctx, targets)
+
+	lookups := make(map[string]Lookup, len(tagRefs))
+	for i, ref := range tagRefs {
+		lookups[ref] = Lookup{
+			NewTagRef: updates[ref],
+			Digest:    digests[targets[i]],
+			HeldRef:   held[ref],
+			TagErr:    tagErrs[ref],
+			DigestErr: errs[targets[i]],
+		}
+	}
+	return lookups
+}
+
+// resolveDigest fetches the current digest for a tag reference.
+func resolveDigest(ctx context.Context, tagRef string) (string, error) {
 	ref, err := name.ParseReference(tagRef)
 	if err != nil {
 		return "", fmt.Errorf("parse reference %q: %w", tagRef, err)
@@ -60,14 +95,14 @@ func listTags(ctx context.Context, repo name.Repository) ([]string, error) {
 	return tags, nil
 }
 
-// ResolveAll resolves digests for unique tag references concurrently.
-func ResolveAll(ctx context.Context, tagRefs []string) (digests map[string]string, errs map[string]error) {
+// resolveAll resolves digests for unique tag references concurrently.
+func resolveAll(ctx context.Context, tagRefs []string) (digests map[string]string, errs map[string]error) {
 	unique := make(map[string]string, len(tagRefs))
 	for _, t := range tagRefs {
 		unique[t] = t
 	}
 	return runConcurrently(unique, func(tagRef string) (string, error) {
-		return ResolveDigest(ctx, tagRef)
+		return resolveDigest(ctx, tagRef)
 	})
 }
 
