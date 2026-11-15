@@ -66,19 +66,10 @@ func (r *Result) PinnedRef() string {
 	return tag + "@" + r.NewDigest
 }
 
-// Run pins digests in-place. If update is true, also refreshes existing ones.
-func Run(ctx context.Context, files []string, update bool) ([]Result, error) {
-	return process(ctx, files, options{apply: true, update: update})
-}
-
-// Check reports what Run would change, without modifying files.
-func Check(ctx context.Context, files []string, update bool) ([]Result, error) {
-	return process(ctx, files, options{update: update})
-}
-
-type options struct {
-	apply  bool // write resolved refs back to the file
-	update bool // refresh pinned digests and move tags forward
+// Options controls what Process changes.
+type Options struct {
+	Apply  bool // write resolved refs back to the file
+	Update bool // refresh pinned digests and move tags forward
 }
 
 type fileData struct {
@@ -88,13 +79,15 @@ type fileData struct {
 	refs    []ImageRef
 }
 
-func process(ctx context.Context, files []string, opts options) ([]Result, error) {
+// Process reports one Result per image ref in files.
+// A registry failure is a Result with StatusError; the returned error is a file failure.
+func Process(ctx context.Context, files []string, opts Options) ([]Result, error) {
 	parsed, err := parseAllFiles(files)
 	if err != nil {
 		return nil, err
 	}
 
-	lookups := registry.Resolve(ctx, eligibleRefs(parsed, opts.update), opts.update)
+	lookups := registry.Resolve(ctx, eligibleRefs(parsed, opts.Update), opts.Update)
 
 	var results []Result
 	for i := range parsed {
@@ -102,7 +95,7 @@ func process(ctx context.Context, files []string, opts options) ([]Result, error
 		fileResults, repls := classifyRefs(fp, lookups, opts)
 		results = append(results, fileResults...)
 
-		if opts.apply && len(repls) > 0 {
+		if opts.Apply && len(repls) > 0 {
 			newContent := applyReplacements(fp.content, repls)
 			if err := os.WriteFile(fp.path, []byte(newContent), fp.mode); err != nil {
 				return nil, fmt.Errorf("write %s: %w", fp.path, err)
@@ -134,7 +127,7 @@ type replacement struct {
 	newStr string
 }
 
-func classifyRefs(fp *fileData, lookups map[string]registry.Lookup, opts options) (results []Result, repls []replacement) {
+func classifyRefs(fp *fileData, lookups map[string]registry.Lookup, opts Options) (results []Result, repls []replacement) {
 	for _, ref := range fp.refs {
 		if shouldSkip(ref) {
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusSkipped})
@@ -142,7 +135,7 @@ func classifyRefs(fp *fileData, lookups map[string]registry.Lookup, opts options
 		}
 
 		// Pinned and not updating: no resolution needed.
-		if !opts.update && ref.Digest != "" {
+		if !opts.Update && ref.Digest != "" {
 			results = append(results, Result{File: fp.path, Ref: ref, Status: StatusCurrent})
 			continue
 		}
@@ -192,7 +185,7 @@ func classifyRefs(fp *fileData, lookups map[string]registry.Lookup, opts options
 			Status:    status,
 		}
 
-		if opts.apply {
+		if opts.Apply {
 			repls = append(repls, replacement{
 				start:  ref.Start,
 				end:    ref.Start + len(ref.Original),

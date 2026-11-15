@@ -64,7 +64,8 @@ func (cmd *RunCmd) Run() error {
 		return nil
 	}
 
-	results, err := pindock.Run(context.Background(), files, cmd.Update)
+	opts := pindock.Options{Apply: true, Update: cmd.Update}
+	results, err := pindock.Process(context.Background(), files, opts)
 	if err != nil {
 		return fmt.Errorf("run: %w", err)
 	}
@@ -97,7 +98,8 @@ func (cmd *CheckCmd) Run() error {
 		return nil
 	}
 
-	results, err := pindock.Check(context.Background(), files, cmd.Update)
+	opts := pindock.Options{Update: cmd.Update}
+	results, err := pindock.Process(context.Background(), files, opts)
 	if err != nil {
 		return fmt.Errorf("check: %w", err)
 	}
